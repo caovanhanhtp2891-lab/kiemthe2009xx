@@ -1,0 +1,6 @@
+{
+  "name": "Võ Lâm Kiếm Thế",
+  "description": "Web game nhập vai kiếm hiệp 2D phong cách Võ Lâm Truyền Kỳ & Kiếm Thế — 5 Tông Môn Ngũ Hành, săn Boss Hoàng Kim, Phó Bản, Lôi Đài và Công Thành Chiến.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

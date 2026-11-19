@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        var EXT_PROTO_RE = /(?:chrome|moz|safari(?:-web)?)-extension:\/\//i;
+        function isExtensionOrigin(filename, stack) {
+          if (typeof filename === 'string' && EXT_PROTO_RE.test(filename)) {
+            return true;
+          }
+          if (typeof stack === 'string' && EXT_PROTO_RE.test(stack)) {
+            var lines = stack.split('\n');
+            var hasFrame = false;
+            for (var i = 0; i < lines.length; i++) {
+              var line = lines[i];
+              if (/^\s*at\s+/i.test(line) || /@/.test(line)) {
+                hasFrame = true;
+                if (!EXT_PROTO_RE.test(line)) {
+                  return false;
+                }
+              }
+            }
+            return hasFrame;
+          }
+          return false;
+        }
+        window.addEventListener(
+          'error',
+          function (event) {
+            var stack = event && event.error && event.error.stack;
+            if (isExtensionOrigin(event && event.filename, stack)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var reason = event && event.reason;
+            var stack = reason && reason.stack;
+            if (isExtensionOrigin('', stack)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+      })();
+    </script>
+    <title>Võ Lâm Kiếm Thế — Giang Hồ Phân Tranh</title>
+    <meta
+      name="description"
+      content="Web game nhập vai kiếm hiệp 2D phong cách Võ Lâm Truyền Kỳ & Kiếm Thế — 5 Tông Môn Ngũ Hành, săn Boss Hoàng Kim, Phó Bản, Lôi Đài và Công Thành Chiến."
+    />
+    <meta property="og:title" content="Võ Lâm Kiếm Thế — Giang Hồ Phân Tranh" />
+    <meta
+      property="og:description"
+      content="Web game nhập vai kiếm hiệp 2D phong cách Võ Lâm Truyền Kỳ & Kiếm Thế — 5 Tông Môn Ngũ Hành, săn Boss Hoàng Kim, Phó Bản, Lôi Đài và Công Thành Chiến."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=JetBrains+Mono:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-[#0B0908] text-[#F3EAD8] antialiased selection:bg-[#991B1B] selection:text-[#FDE68A] overflow-hidden">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

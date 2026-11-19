@@ -1,0 +1,587 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #0b0d0e;
+  color: #f0ece1;
+  user-select: none;
+}
+
+.font-wuxia {
+  font-family: var(--font-display);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   KIẾM THẾ PC 2009 (JX WORLD / KINGSOFT) AUTHENTIC STEEL-JADE UI SYSTEM
+   Carved Gunmetal Silver-Steel Frames · Forest Emerald Titlebars · Obsidian Slots
+   ============================================================================ */
+
+/* Sculpted double-beveled silver-steel window frame */
+.kt-window {
+  background: linear-gradient(180deg, #272c30 0%, #191d20 18%, #131619 100%);
+  border: 1px solid #8a9499;
+  box-shadow:
+    inset 0 0 0 1px #14171a,
+    inset 0 0 0 2px #586268,
+    inset 0 1px 0 2px rgba(226, 236, 240, 0.22),
+    0 18px 46px rgba(0, 0, 0, 0.88),
+    0 0 0 1px #060809;
+  border-radius: 3px;
+}
+
+/* Iconic Kiếm Thế 2009 deep forest-jade window title bar */
+.kt-titlebar {
+  background: linear-gradient(180deg, #274a35 0%, #193524 48%, #102318 100%);
+  border-bottom: 1px solid #667b6e;
+  box-shadow:
+    inset 0 1px 0 rgba(190, 240, 208, 0.28),
+    inset 0 -1px 0 rgba(7, 15, 10, 0.85),
+    0 2px 6px rgba(0, 0, 0, 0.55);
+}
+
+/* Sculpted metallic pewter-steel floating HUD container */
+.kt-hud-box {
+  background: linear-gradient(180deg, rgba(48, 54, 59, 0.94) 0%, rgba(26, 30, 34, 0.96) 52%, rgba(16, 19, 22, 0.97) 100%);
+  border: 1px solid #7d888e;
+  box-shadow:
+    inset 0 0 0 1px #191d21,
+    inset 0 1px 0 1px rgba(224, 236, 242, 0.2),
+    0 6px 18px rgba(0, 0, 0, 0.78),
+    0 0 0 1px rgba(5, 7, 8, 0.95);
+  border-radius: 2px;
+}
+
+/* Bottom command dock steel plate */
+.kt-dock-bar {
+  background: linear-gradient(180deg, #3c4349 0%, #24292e 24%, #181c20 78%, #101316 100%);
+  border-top: 1px solid #96a2a8;
+  border-left: 1px solid #6e787e;
+  border-right: 1px solid #6e787e;
+  border-bottom: 1px solid #2a3035;
+  box-shadow:
+    inset 0 1px 0 rgba(235, 245, 250, 0.3),
+    inset 0 0 0 1px rgba(15, 18, 21, 0.85),
+    0 -4px 20px rgba(0, 0, 0, 0.72);
+}
+
+/* Semi-transparent dark ink panel for chat & quest tracker */
+.kt-ink-panel {
+  background: linear-gradient(180deg, rgba(16, 20, 22, 0.82) 0%, rgba(9, 12, 14, 0.88) 100%);
+  border: 1px solid rgba(122, 136, 142, 0.55);
+  box-shadow:
+    inset 0 0 0 1px rgba(24, 29, 32, 0.85),
+    0 4px 14px rgba(0, 0, 0, 0.65);
+  border-radius: 2px;
+}
+
+/* Recessed dark obsidian equipment / skill / inventory slot */
+.kt-slot {
+  background: linear-gradient(180deg, #090b0d 0%, #14181c 100%);
+  border: 1px solid #636e75;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.92),
+    inset 0 0 0 1px rgba(210, 224, 232, 0.1),
+    0 1px 0 rgba(220, 235, 245, 0.14);
+  border-radius: 2px;
+}
+
+.kt-slot:hover:not(:disabled) {
+  border-color: #f0ca6b;
+  box-shadow:
+    inset 0 0 10px rgba(240, 202, 107, 0.22),
+    0 0 8px rgba(240, 202, 107, 0.35);
+}
+
+/* Classic Kiếm Thế 2009 6x5 bag grid cell */
+.kt-grid-slot {
+  background: radial-gradient(circle at 50% 45%, #161a1e 0%, #0b0d0f 100%);
+  border: 1px solid #485258;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.92),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.kt-grid-slot:hover {
+  border-color: #e6c368;
+  box-shadow:
+    inset 0 0 10px rgba(230, 195, 104, 0.18),
+    0 0 6px rgba(230, 195, 104, 0.28);
+}
+
+/* Carved Kiếm Thế folder tab */
+.kt-tab {
+  background: linear-gradient(180deg, #32383d 0%, #1f2428 60%, #161a1d 100%);
+  border: 1px solid #626d73;
+  color: #c2ccd1;
+  box-shadow: inset 0 1px 0 rgba(220, 232, 238, 0.16);
+  border-radius: 2px;
+}
+
+.kt-tab:hover:not(:disabled) {
+  background: linear-gradient(180deg, #414950 0%, #2a3036 60%, #1d2226 100%);
+  border-color: #9ba8af;
+  color: #f6f4ee;
+}
+
+.kt-tab-active {
+  background: linear-gradient(180deg, #2d593f 0%, #1d3d2a 55%, #13281c 100%);
+  border: 1px solid #88c29b;
+  color: #fef3c7;
+  box-shadow:
+    inset 0 1px 0 rgba(205, 252, 220, 0.34),
+    0 0 10px rgba(45, 140, 88, 0.3);
+  border-radius: 2px;
+}
+
+/* Classic Kiếm Thế crimson vermilion CTA button */
+.kt-btn-crimson {
+  background: linear-gradient(180deg, #b82924 0%, #861714 52%, #5e0e0c 100%);
+  border: 1px solid #dfb458;
+  color: #fef3c7;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 234, 179, 0.42),
+    inset 0 -1px 0 rgba(45, 5, 4, 0.72),
+    0 2px 6px rgba(0, 0, 0, 0.6);
+  border-radius: 2px;
+}
+
+.kt-btn-crimson:hover:not(:disabled) {
+  background: linear-gradient(180deg, #cf302b 0%, #9b1b18 52%, #6d100e 100%);
+  border-color: #f7d982;
+}
+
+.kt-btn-crimson:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Classic sculpted silver-steel button (replaces warm brown across all modals) */
+.kt-btn-bronze {
+  background: linear-gradient(180deg, #3f474d 0%, #272d32 55%, #1a1e22 100%);
+  border: 1px solid #768289;
+  color: #eae4d3;
+  box-shadow:
+    inset 0 1px 0 rgba(232, 242, 248, 0.24),
+    inset 0 -1px 0 rgba(8, 10, 12, 0.78),
+    0 2px 5px rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
+}
+
+.kt-btn-bronze:hover:not(:disabled) {
+  background: linear-gradient(180deg, #515b62 0%, #343c42 55%, #23282d 100%);
+  border-color: #d7b86a;
+  color: #fff6d9;
+}
+
+.kt-btn-bronze:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Classic emerald jade active toggle button */
+.kt-btn-jade {
+  background: linear-gradient(180deg, #256b49 0%, #164830 55%, #0e3120 100%);
+  border: 1px solid #7dd3a2;
+  color: #dcfce7;
+  box-shadow:
+    inset 0 1px 0 rgba(196, 255, 222, 0.35),
+    0 0 10px rgba(45, 168, 106, 0.3);
+  border-radius: 2px;
+}
+
+/* Classic Kiếm Thế 2009 glossy glass-tube vital bars */
+.kt-bar-track {
+  background: linear-gradient(180deg, #07090a 0%, #161b1f 100%);
+  border: 1px solid #6c777e;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.95),
+    0 1px 0 rgba(210, 225, 235, 0.14);
+  border-radius: 2px;
+}
+
+.kt-bar-hp {
+  background: linear-gradient(180deg, #f87171 0%, #dc2626 38%, #991b1b 72%, #691010 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 220, 0.55);
+}
+
+.kt-bar-mp {
+  background: linear-gradient(180deg, #60a5fa 0%, #2563eb 40%, #1d4ed8 74%, #102a7a 100%);
+  box-shadow: inset 0 1px 0 rgba(219, 234, 254, 0.58);
+}
+
+.kt-bar-stamina {
+  background: linear-gradient(180deg, #4ade80 0%, #16a34a 42%, #15803d 74%, #0f4c24 100%);
+  box-shadow: inset 0 1px 0 rgba(220, 252, 231, 0.55);
+}
+
+.kt-bar-gold {
+  background: linear-gradient(180deg, #fde047 0%, #eab308 45%, #a16207 100%);
+  box-shadow: inset 0 1px 0 rgba(254, 249, 195, 0.6);
+}
+
+.kt-bar-exp {
+  background: linear-gradient(180deg, #4ade80 0%, #16a34a 52%, #14532d 100%);
+  box-shadow: inset 0 1px 0 rgba(220, 252, 231, 0.5);
+}
+
+/* Circular Rage / Nộ Medallion Orb */
+.kt-rage-orb {
+  background: radial-gradient(circle at 38% 32%, #525d66 0%, #23292e 55%, #0e1114 100%);
+  border: 2px solid #96a4ac;
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.85),
+    0 2px 10px rgba(0, 0, 0, 0.78);
+}
+
+.kt-rage-orb-active {
+  background: radial-gradient(circle at 38% 32%, #ef4444 0%, #991b1b 55%, #450a0a 100%);
+  border: 2px solid #f5cf6e;
+  box-shadow:
+    inset 0 2px 6px rgba(255, 210, 150, 0.35),
+    0 0 14px rgba(239, 68, 68, 0.65);
+}
+
+/* ============================================================================
+   EXACT KIẾM THẾ PC 2009 BOTTOM COMMAND BAR & RAISED CENTER "NỘ" ARCH
+   ============================================================================ */
+
+.kt2009-bar {
+  background: linear-gradient(
+    180deg,
+    #6a7680 0%,
+    #49525a 6%,
+    #2f363c 22%,
+    #1c2126 72%,
+    #111518 100%
+  );
+  border-top: 2px solid #b6c4ce;
+  border-bottom: 1px solid #2b3238;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 250, 255, 0.52),
+    inset 0 -2px 3px rgba(5, 7, 9, 0.92),
+    0 -5px 20px rgba(0, 0, 0, 0.78);
+}
+
+/* Ornamental metallic end caps on far left/right of widescreen bar */
+.kt2009-wing-cap {
+  background: linear-gradient(180deg, #4b555e 0%, #262c31 45%, #15191d 100%);
+  border: 1px solid #788791;
+  box-shadow:
+    inset 0 1px 0 rgba(235, 244, 250, 0.34),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.85);
+}
+
+/* Continuous metallic-framed 10-slot tray */
+.kt2009-slot-strip {
+  background: #090c0f;
+  border: 1.5px solid #8a99a3;
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.96),
+    inset 0 0 0 1px rgba(10, 14, 18, 0.9),
+    0 1px 0 rgba(226, 238, 246, 0.28);
+  border-radius: 2px;
+}
+
+.kt2009-slot {
+  background: radial-gradient(circle at 50% 44%, #181f25 0%, #090c0f 100%);
+  border-right: 1px solid #48535c;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.94),
+    inset 1px 0 0 rgba(180, 198, 210, 0.08);
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+.kt2009-slot:last-child {
+  border-right: none;
+}
+
+.kt2009-slot:hover:not(:disabled) {
+  filter: brightness(1.18);
+  box-shadow: inset 0 0 0 1px #f3cf72, inset 0 0 10px rgba(243, 207, 114, 0.32);
+}
+
+.kt2009-hotkey {
+  position: absolute;
+  top: 1px;
+  left: 2.5px;
+  z-index: 10;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #e4edf2;
+  text-shadow: 0 1px 2px #000, 0 0 2px #000;
+  pointer-events: none;
+}
+
+.kt2009-count {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  z-index: 10;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+  color: #f6fafc;
+  text-shadow: 0 1px 2px #000, 0 0 2px #000;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* Raised center active Left/Right skill sockets */
+.kt2009-active-skill {
+  background: linear-gradient(180deg, #1d242a 0%, #07090b 100%);
+  border: 1.5px solid #c3d1da;
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.95),
+    0 0 0 1px #273038,
+    0 3px 10px rgba(0, 0, 0, 0.85);
+  border-radius: 2px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+.kt2009-active-skill:hover {
+  border-color: #fde047;
+  filter: brightness(1.14);
+  box-shadow:
+    inset 0 0 10px rgba(253, 224, 71, 0.25),
+    0 0 12px rgba(253, 224, 71, 0.48);
+}
+
+/* Circular sculpted "Nộ" orb nestled between Left/Right skills */
+.kt2009-no-orb {
+  background: radial-gradient(circle at 36% 28%, #5b6772 0%, #2a3239 48%, #101418 100%);
+  border: 2px solid #c7d5df;
+  box-shadow:
+    inset 0 2px 5px rgba(255, 255, 255, 0.25),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.92),
+    0 0 0 1.5px #1e242a,
+    0 3px 10px rgba(0, 0, 0, 0.9);
+}
+
+.kt2009-no-orb-active {
+  background: radial-gradient(circle at 36% 28%, #f87171 0%, #b91c1c 46%, #450a0a 100%);
+  border: 2px solid #f7d774;
+  box-shadow:
+    inset 0 2px 5px rgba(255, 232, 180, 0.5),
+    inset 0 -3px 6px rgba(45, 4, 4, 0.9),
+    0 0 0 1.5px #3b1012,
+    0 0 16px rgba(239, 68, 68, 0.85),
+    0 3px 10px rgba(0, 0, 0, 0.9);
+}
+
+/* Right menu illustrated square beveled tiles */
+.kt2009-menu-btn {
+  background: linear-gradient(180deg, #344048 0%, #1c2328 52%, #111519 100%);
+  border-right: 1px solid #4e5a63;
+  box-shadow:
+    inset 0 1px 0 rgba(226, 238, 246, 0.22),
+    inset 1px 0 0 rgba(226, 238, 246, 0.1),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.85);
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+.kt2009-menu-btn:last-child {
+  border-right: none;
+}
+
+.kt2009-menu-btn:hover {
+  filter: brightness(1.2);
+  box-shadow: inset 0 0 0 1px #f3cf72, inset 0 0 10px rgba(243, 207, 114, 0.3);
+}
+
+.kt2009-menu-btn-active {
+  box-shadow: inset 0 0 0 1.5px #7dd3a2, inset 0 0 12px rgba(74, 222, 128, 0.38);
+}
+
+/* Classic Kiếm Thế 2009 floating tooltip card */
+.kt2009-tooltip {
+  background: linear-gradient(180deg, rgba(19, 28, 32, 0.98) 0%, rgba(10, 15, 18, 0.98) 100%);
+  border: 1px solid #8ca0a8;
+  box-shadow:
+    inset 0 0 0 1px rgba(212, 175, 55, 0.22),
+    0 4px 14px rgba(0, 0, 0, 0.85);
+}
+
+/* Mini flush utility strip & "[Luyện công]" switch above right bar */
+.kt2009-mini-strip {
+  background: linear-gradient(180deg, #434d55 0%, #1e2429 100%);
+  border: 1px solid #8c9ba5;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 1px 0 rgba(235, 245, 252, 0.28),
+    0 2px 8px rgba(0, 0, 0, 0.72);
+}
+
+.kt2009-mini-btn {
+  background: #101417;
+  border: 1px solid #5e6b74;
+  border-radius: 2px;
+}
+
+.kt2009-mini-btn:hover:not(:disabled) {
+  border-color: #f3cf72;
+}
+
+.kt2009-pk-switch {
+  background: linear-gradient(180deg, #424c54 0%, #242b31 52%, #15191d 100%);
+  border: 1px solid #95a4ae;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 1px 0 rgba(235, 245, 250, 0.32),
+    0 2px 8px rgba(0, 0, 0, 0.75);
+}
+
+.kt2009-pk-switch:hover {
+  border-color: #f3cf72;
+}
+
+/* Subtle metallic scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #101316;
+  border-left: 1px solid #2a3136;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #626e75, #3b444a);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8a99a2;
+}
+
+/* Treasure Chest special blinking, shimmering & celebratory animations */
+@keyframes chest-ray-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes chest-flash-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    filter: brightness(1);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.45);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes chest-strobe-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 12px rgba(245, 208, 97, 0.35), inset 0 0 8px rgba(245, 208, 97, 0.12);
+    border-color: rgba(212, 175, 55, 0.65);
+  }
+  25% {
+    box-shadow: 0 0 28px rgba(254, 240, 138, 0.9), inset 0 0 18px rgba(254, 240, 138, 0.35);
+    border-color: rgba(254, 249, 195, 1);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(245, 158, 11, 0.55), inset 0 0 10px rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 208, 97, 0.8);
+  }
+  75% {
+    box-shadow: 0 0 32px rgba(255, 255, 255, 0.85), inset 0 0 20px rgba(245, 208, 97, 0.45);
+    border-color: rgba(255, 255, 255, 0.95);
+  }
+}
+
+@keyframes chest-shimmer-sweep {
+  0% {
+    transform: translateX(-140%) skewX(-22deg);
+  }
+  100% {
+    transform: translateX(240%) skewX(-22deg);
+  }
+}
+
+@keyframes chest-twinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.55) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25) rotate(45deg);
+  }
+}
+
+@keyframes chest-hud-blink {
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(245, 208, 97, 0.35);
+    border-color: rgba(212, 175, 55, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(254, 240, 138, 0.9), 0 0 4px rgba(255, 255, 255, 0.6);
+    border-color: rgba(254, 240, 138, 1);
+  }
+}
+
+.animate-chest-ray {
+  animation: chest-ray-spin 14s linear infinite;
+}
+
+.animate-chest-ray-fast {
+  animation: chest-ray-spin 4.5s linear infinite;
+}
+
+.animate-chest-flash {
+  animation: chest-flash-pulse 0.42s ease-in-out infinite;
+}
+
+.animate-chest-strobe {
+  animation: chest-strobe-glow 1.15s ease-in-out infinite;
+}
+
+.animate-chest-shimmer {
+  animation: chest-shimmer-sweep 1.85s ease-in-out infinite;
+}
+
+.animate-chest-twinkle {
+  animation: chest-twinkle 0.9s ease-in-out infinite;
+}
+
+.animate-chest-hud-blink {
+  animation: chest-hud-blink 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
