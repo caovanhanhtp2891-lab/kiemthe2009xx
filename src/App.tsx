@@ -34,6 +34,7 @@ import { SageStudioModal } from './components/panels/SageStudioModal';
 import { SiegeWarModal } from './components/panels/SiegeWarModal';
 import { SocialGuildModal } from './components/panels/SocialGuildModal';
 import { TitleMantleModal } from './components/panels/TitleMantleModal';
+import { VfxSheetGalleryModal } from './components/panels/VfxSheetGalleryModal';
 import {
   BOT_CHAT_TEMPLATES,
   CHEST_TIER_META,
@@ -66,11 +67,14 @@ import {
   getGuildTechUpgradeCost,
   getIllusionStats,
   getIllusionUpgradeCost,
+  getPlayerHotbarSkills,
+  getSkillBranchKey,
   loadSavedGame,
   nowTimeLabel,
   rollTreasureChestRewards,
   saveGameToStorage,
 } from './game/engine';
+import { CATALOG_BY_ID, CATALOG_BY_SECT } from './game/fullSkillCatalog';
 import { soundEngine } from './game/sound';
 import {
   ActiveModal,
@@ -601,12 +605,19 @@ export default function App() {
       const skillLevels = { ...prev.skillLevels };
       let leveledUp = false;
 
-      while (exp >= maxExp && level < 99) {
+      while (exp >= maxExp && level < 180) {
         exp -= maxExp;
         level += 1;
         maxExp = getExpForLevel(level);
         leveledUp = true;
-        // Auto-unlock sect skills upon reaching required level
+        // Auto-unlock all Lv.10–180 catalog skills for the player's sect upon reaching required level
+        const sectCatalog = CATALOG_BY_SECT[prev.sect] || [];
+        for (const sk of sectCatalog) {
+          if (level >= sk.unlockLevel && (skillLevels[sk.id] || 0) === 0) {
+            skillLevels[sk.id] = 1;
+          }
+        }
+        // Keep legacy skill IDs synced for compatibility
         for (const sk of SECTS[prev.sect].skills) {
           if (level >= sk.unlockLevel && (skillLevels[sk.id] || 0) === 0) {
             skillLevels[sk.id] = 1;
@@ -680,10 +691,17 @@ export default function App() {
   };
 
   const handleSwitchBranch = (branchIndex: 0 | 1) => {
+    if (battle.mode !== 'WILD') {
+      soundEngine.playFail();
+      pushToast('Chỉ có thể đổi nhánh miễn phí ngoài giao tranh Phó Bản / Boss / Lôi Đài!');
+      return;
+    }
     const branchName = SECTS[player.sect].branches[branchIndex] ?? SECTS[player.sect].branches[0];
     setPlayer((prev) => ({ ...prev, branchIndex }));
     soundEngine.playLoot();
-    pushToast(`Đã chuyển Hướng Chính sang ${SECTS[player.sect].name} · ${branchName} (Phím 1–3)!`);
+    pushToast(
+      `Đã chuyển sang nhánh ${SECTS[player.sect].name} · ${branchName} (chỉ kích hoạt bị động nhánh đang chọn)!`
+    );
   };
 
   const handleTogglePkMode = useCallback(() => {
@@ -1189,8 +1207,14 @@ export default function App() {
 
   const handleUpgradeSkill = (skillId: string) => {
     const cur = player.skillLevels[skillId] || 0;
-    const cost = Math.round(450 * Math.pow(Math.max(1, cur + 1), 1.45));
-    if (player.silver < cost || cur >= 20) return;
+    const cat = CATALOG_BY_ID[skillId];
+    const maxRank = cat?.maxRank || 20;
+    if (cat && player.level < cat.unlockLevel && cur === 0) {
+      pushToast(`Cần đạt Cấp ${cat.unlockLevel} để lĩnh ngộ [${cat.name}]!`);
+      return;
+    }
+    const cost = Math.round(450 * Math.pow(Math.max(1, cur + 1), 1.42));
+    if (player.silver < cost || cur >= maxRank) return;
     soundEngine.playLevelUp();
     setPlayer((prev) => ({
       ...prev,
@@ -1198,7 +1222,31 @@ export default function App() {
       wealth: prev.wealth + 150,
       skillLevels: { ...prev.skillLevels, [skillId]: cur + 1 },
     }));
-    pushToast(`Lĩnh ngộ võ học lên Tầng ${cur + 1}!`);
+    pushToast(`Lĩnh ngộ [${cat?.name || 'Võ học'}] lên Hạng ${cur + 1}/${maxRank}!`);
+  };
+
+  const handleEquipSkill = (slotIndex: number, skillId: string) => {
+    if (slotIndex < 0 || slotIndex > 5) return;
+    const cat = CATALOG_BY_ID[skillId];
+    if (!cat || cat.activationType !== 'active') return;
+    const branchIdx: 0 | 1 = player.branchIndex === 1 ? 1 : 0;
+    const branchKey = getSkillBranchKey(player.sect, branchIdx);
+    const currentHotbarIds = getPlayerHotbarSkills(player).map((s) => s.id);
+    const nextIds = [...currentHotbarIds];
+    const existingIdx = nextIds.indexOf(skillId);
+    if (existingIdx >= 0 && existingIdx !== slotIndex) {
+      nextIds[existingIdx] = nextIds[slotIndex];
+    }
+    nextIds[slotIndex] = skillId;
+    soundEngine.playLoot();
+    setPlayer((prev) => ({
+      ...prev,
+      equippedSkillsByBranch: {
+        ...(prev.equippedSkillsByBranch || {}),
+        [branchKey]: nextIds,
+      },
+    }));
+    pushToast(`Đã gán [${cat.name}] vào phím tắt [${slotIndex + 1}]!`);
   };
 
   const handleBuyPotion = () => {
@@ -1774,39 +1822,50 @@ export default function App() {
               </button>
 
               {/* COMPACT KIẾM THẾ 2009 HORIZONTAL TRIPLE VITAL TUBE BAR */}
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5 max-w-[468px]">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5 max-w-[492px]">
                 <div className="kt-hud-box px-1.5 pt-0.5 pb-1">
-                  <div className="mb-0.5 flex items-center justify-between gap-1.5 text-[9px]">
-                    <div className="flex min-w-0 items-center gap-1">
+                  {/* Top Bezel Row: <Phi Phong> Name on Left · EXP % Centered Above Red HP · Power on Right */}
+                  <div className="mb-0.5 grid grid-cols-12 items-center gap-1 text-[9px]">
+                    <div className="col-span-5 flex min-w-0 items-center gap-1">
+                      <span
+                        className="shrink-0 font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]"
+                        style={{ color: mantle.id > 0 ? mantle.color : '#93C5FD' }}
+                      >
+                        &lt;{mantle.id === 0 ? 'Sơ Nhập' : mantle.name}&gt;
+                      </span>
                       <span
                         className={`truncate font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)] ${
-                          player.pkPoints > 0 ? 'text-[#F87171]' : 'text-[#FEF3C7]'
+                          player.pkPoints > 0 ? 'text-[#F87171]' : 'text-[#C8FFE0]'
                         }`}
                       >
                         {player.name}
                       </span>
-                      <span className="shrink-0 font-semibold" style={{ color: mantle.color }}>
-                        [{mantle.name}]
-                      </span>
-                      <span className="hidden shrink-0 font-semibold sm:inline" style={{ color: sect.color }}>
-                        · {sect.name} ({sect.branches[player.branchIndex === 1 ? 1 : 0]})
-                      </span>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1.5 font-mono text-[8.5px] tabular-nums">
+                    {/* Centered EXP % directly over Red HP Bar (Kiếm Thế 2009 authentic layout) */}
+                    <div className="col-span-3 flex justify-center">
                       <span
-                        className="rounded-sm border border-[#5B6870] bg-[#0D1114] px-1 py-0 font-bold text-[#E5F4E8]"
+                        className="rounded-[2px] border border-[#5B6870] bg-[#0B0E11] px-1.5 py-0 font-mono text-[8.5px] font-bold text-[#F0FAF3] tabular-nums"
                         title={`Kinh Nghiệm: ${formatNumber(player.exp)} / ${formatNumber(player.maxExp)}`}
                       >
                         {(expRatio * 100).toFixed(2)}%
                       </span>
-                      <span className="hidden text-[#F5D061] md:inline">
+                    </div>
+
+                    <div className="col-span-4 flex items-center justify-end gap-1.5 font-mono text-[8.5px] tabular-nums">
+                      <span
+                        className="hidden truncate font-sans font-semibold sm:inline"
+                        style={{ color: sect.color }}
+                      >
+                        {sect.name}
+                      </span>
+                      <span className="shrink-0 text-[#F5D061]">
                         LC {formatNumber(stats.power)}
                       </span>
                     </div>
                   </div>
 
-                  {/* 3 Sleek Side-by-Side 2009 Liquid Tubes */}
+                  {/* 3 Sleek Side-by-Side 2009 Liquid Tubes (Blue MP | Wide Red HP | Green Thể Lực/Hộ Thuẫn) */}
                   <div className="grid grid-cols-12 items-center gap-1">
                     <div className="kt-bar-track relative col-span-3 h-2.5 overflow-hidden">
                       <div
@@ -1834,20 +1893,25 @@ export default function App() {
                         style={{ transform: `scaleX(${shieldRatio})` }}
                       />
                       <div className="absolute inset-0 flex items-center justify-center font-mono text-[7.5px] font-bold text-[#ECFDF5] tabular-nums drop-shadow-[0_1px_1px_rgba(0,0,0,0.98)]">
-                        {hud.shield > 0 ? `+${formatNumber(hud.shield)}` : '500/500'}
+                        {hud.shield > 0 ? `+${formatNumber(hud.shield)}` : `${960 + player.level * 12}/${960 + player.level * 12}`}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Compact Guild · Title · Target HP Bar + System Toast Row */}
+                {/* Compact Title · Guild.Role · Target HP Bar + System Toast Row */}
                 <div className="flex flex-wrap items-center gap-1">
-                  {(myGuild || titleObj) && (
-                    <div className="hidden items-center gap-1 border border-[#4D5A62]/75 bg-[#0F1316]/82 px-1.5 py-0.5 text-[9px] lg:flex">
-                      {myGuild && <span className="font-semibold text-[#4ADE80]">[{myGuild.name}]</span>}
+                  {(titleObj || myGuild) && (
+                    <div className="hidden items-center gap-1.5 border border-[#4D5A62]/75 bg-[#0F1316]/86 px-1.5 py-0.5 text-[9px] lg:flex">
                       {titleObj && (
-                        <span className="font-wuxia text-[10px] font-bold" style={{ color: titleObj.color }}>
-                          « {titleObj.name} »
+                        <span className="font-bold" style={{ color: titleObj.color }}>
+                          {titleObj.name}
+                        </span>
+                      )}
+                      {titleObj && myGuild && <span className="text-[#5E707A]">·</span>}
+                      {myGuild && (
+                        <span className="font-semibold text-[#D8F5E6]">
+                          [Bang hội]{myGuild.name}.{myGuild.leader === player.name ? 'Bang chủ' : 'Thành viên'}
                         </span>
                       )}
                     </div>
@@ -2161,6 +2225,15 @@ export default function App() {
                     </button>
                   )}
 
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal('VFX_SHEETS')}
+                    className="kt-btn-bronze flex w-full items-center justify-center gap-1 py-0.5 text-[8.5px] font-semibold text-[#FEF08A] cursor-pointer"
+                  >
+                    <Sparkles className="h-2.5 w-2.5 text-[#F5D061]" />
+                    <span>Kho Sheet VFX (21 Bảng)</span>
+                  </button>
+
                   {aliveBossCount > 0 && battle.mode === 'WILD' && (
                     <button
                       onClick={() => setActiveModal('MAP_BOSS')}
@@ -2271,7 +2344,14 @@ export default function App() {
           onClose={() => setSkillsWindowOpen(false)}
           onUpgradeSkill={handleUpgradeSkill}
           onSwitchBranch={handleSwitchBranch}
+          onEquipSkill={handleEquipSkill}
+          onPreviewSkill={(skillId) => canvasRef.current?.previewSkillVfx(skillId)}
+          onOpenVfxSheets={() => setActiveModal('VFX_SHEETS')}
         />
+      )}
+
+      {activeModal === 'VFX_SHEETS' && (
+        <VfxSheetGalleryModal onClose={() => setActiveModal(null)} />
       )}
 
       {activeModal === 'MAP_BOSS' && (

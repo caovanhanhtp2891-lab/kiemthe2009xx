@@ -27,6 +27,7 @@ const BRANCH_ART_BY_WEAPON: Record<string, string> = {
   'Chùy': branchChuyImg,
   'Tụ Tiễn': branchTuTienImg,
   'Bẫy': branchBayImg,
+  'Hãm Tĩnh': branchBayImg,
   'Chưởng': branchChuongImg,
   'Chỉ': branchChuongImg,
   'Kiếm': branchKiemImg,
@@ -88,6 +89,16 @@ const BRANCH_PROFILES: Record<SectId, Record<string, BranchShowcaseProfile>> = {
       styleSummary:
         'Lướt bóng Mê Ảnh Tung giữ cự ly hoàn hảo, liên tục trút bão phi tiêu xanh lục chí mạng cao vào kẻ địch từ xa.',
       tintColor: 'rgba(74, 222, 128, 0.15)',
+    },
+    'Hãm Tĩnh': {
+      image: branchBayImg,
+      imageAlt: 'Minh họa phong cách Đường Môn Hãm Tĩnh gài cơ quan độc gai',
+      weaponLabel: 'Cơ Quan Hãm Tĩnh',
+      rangeLabel: 'Tầm trung',
+      roleLabel: 'Kiểm soát địa hình · Đẩy lùi phản công',
+      styleSummary:
+        'Giăng trận cơ quan và gai độc dưới chân đối thủ, kết hợp Cửu Cung Kỳ Môn Trận đẩy lùi kẻ áp sát và kích nổ liên hoàn.',
+      tintColor: 'rgba(34, 197, 94, 0.18)',
     },
     'Bẫy': {
       image: branchBayImg,

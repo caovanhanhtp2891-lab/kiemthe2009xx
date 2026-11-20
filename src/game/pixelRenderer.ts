@@ -15,6 +15,7 @@ import {
   resolveMountSpecies,
   spriteAtlas,
 } from './spriteAtlas';
+import { drawVfxSheetFrame } from './vfxSpriteSheetEngine';
 import {
   ElementType,
   EquipSlot,
@@ -908,16 +909,23 @@ function getHeroPoseKeyframe(
   }
 
   if (state === 'cast') {
-    const bobs = [-1, -3, -4, -2];
-    const rots = [-1.15, -1.35, -1.5, -1.2];
-    const i = frameIdx % 4;
+    // 6-frame fluid martial-arts Casting choreography (cleanly separated from 3-frame hit recoil):
+    // 0: Stance prep & draw chi back | 1: Deep coiled hand-seal | 2: Peak chi elevation
+    // 3: Explosive forward palm/weapon release | 4: Extended energy surge | 5: Graceful martial recovery
+    const bobs = [1, 0, -4, -3, -2, 0];
+    const strides = [-1, -1, 0, 2, 2, 0];
+    const leans = [-2, -1, 0, 3, 2, 0];
+    const arms = [-2, -5, -7, 2, 1, -1];
+    const rots = [-0.85, -1.35, -1.65, 0.72, 0.45, -0.22];
+    const flutters = [0, 1, 3, 3, 2, 1];
+    const i = Math.min(5, frameIdx % 6);
     return {
       bobY: bobs[i],
-      stride: 0,
-      leanX: 0,
-      armRaise: -5 - (i === 2 ? 1 : 0),
+      stride: isMounted ? 0 : strides[i],
+      leanX: leans[i],
+      armRaise: arms[i],
       weapRot: rots[i],
-      capeFlutter: i % 2 === 0 ? 2 : 1,
+      capeFlutter: flutters[i],
       deathAngle: 0,
     };
   }
@@ -2168,32 +2176,55 @@ export function drawPixelHero(ctx: CanvasRenderingContext2D, params: PixelHeroDr
     ctx.restore();
   }
 
-  // Radiant Cast Qi Mandala around Hero when channeling a skill
+  // Radiant Casting Sigil & Chi-Release VFX (strictly during 'cast', never during 'hit')
   if (animState === 'cast') {
     const dirMeta = getDir8Meta(dir8);
     const side = dirMeta.flipX ? -1 : 1;
+    const castCol = Math.min(3, Math.floor(Math.max(0, Math.min(0.999, castProgress)) * 4));
+    const castFade = castProgress > 0.78 ? (1 - castProgress) / 0.22 : 1;
+    const castElem = pal.element;
+    const castSheet =
+      castElem === 'moc' || castElem === 'thuy' ? 'casting_moc_thuy' : 'casting_kim_hoa_tho';
+    const castRow =
+      castElem === 'kim'
+        ? 0
+        : castElem === 'hoa'
+        ? 1
+        : castElem === 'tho'
+        ? 2
+        : castElem === 'moc'
+        ? sectId === 'minh_giao'
+          ? 1
+          : 0
+        : sectId === 'doan_thi'
+        ? 3
+        : 2;
+
+    // Painted elemental casting sigil beneath/around the hero during wind-up & release
+    drawVfxSheetFrame(
+      ctx,
+      castSheet,
+      castRow,
+      castCol,
+      x,
+      y + 6 * scale,
+      74 * scale,
+      0,
+      0.86 * castFade,
+      false,
+      0.72
+    );
+
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    // Rotating ground Qi circle
-    ctx.save();
-    ctx.translate(x, y + 10 * scale);
-    ctx.scale(1, 0.45);
-    ctx.rotate(animPhase * 1.4);
-    ctx.strokeStyle = elemColor;
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.72;
-    ctx.beginPath();
-    ctx.arc(0, 0, 26 * scale, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-
-    // Glowing Qi Orb in hand
-    const ox = x + side * 9 * scale;
-    const oy = y - 16 * scale;
-    const orbR = (5 + Math.sin(animPhase * 4.5) * 1.8) * scale;
+    // Glowing Chi Orb focused in casting palms (peaks at mid-cast then surges forward on release)
+    const releasePush = castProgress >= 0.48 ? (castProgress - 0.48) * 16 : 0;
+    const ox = x + side * (9 + releasePush) * scale;
+    const oy = y - (17 - releasePush * 0.15) * scale;
+    const orbR = (4.5 + Math.sin(castProgress * Math.PI) * 3.8) * scale;
     const g = ctx.createRadialGradient(ox, oy, 0.5, ox, oy, orbR * 2.2);
     g.addColorStop(0, '#FFFFFF');
-    g.addColorStop(0.4, elemColor);
+    g.addColorStop(0.42, elemColor);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -4792,6 +4823,240 @@ export function drawFiveElementSkillVfx(
   // 22. DEFAULT ELEMENTAL MARTIAL FORMATIONS ('ring' — KIM / MỘC / THỦY / HỎA / THỔ)
   drawGroundZoneUnderlay(ctx, x, y, curRad, color, alpha, 0.54);
   ctx.globalCompositeOperation = 'lighter';
+  // 18. ICONIC LV.140 / LV.150 / LV.170 / LV.180 SPEC VFX ARCHETYPES
+  // Zero white-screen flash; crisp isometric danger-zone rim during prep; distinctive martial silhouettes
+  if (
+    kind === 'buddha_palm_ult' ||
+    kind === 'staff_mandala_ult' ||
+    kind === 'cavalry_spear_ult' ||
+    kind === 'nine_palace_trap_ult' ||
+    kind === 'spider_venom_ult' ||
+    kind === 'sacred_fire_hex_ult' ||
+    kind === 'lotus_sanctuary_ult' ||
+    kind === 'glacier_swords_ult' ||
+    kind === 'six_meridian_ult' ||
+    kind === 'dragon_storm_ult' ||
+    kind === 'hellfire_lotus_ult' ||
+    kind === 'blood_dragon_ult' ||
+    kind === 'taiji_sword_array_ult' ||
+    kind === 'thunder_array_ult' ||
+    kind === 'wind_thunder_vortex_ult' ||
+    kind === 'cleanse_dash' ||
+    kind === 'guard_shield_140'
+  ) {
+    // Crisp isometric danger/cast boundary rim (preserved even when particle density throttles)
+    ctx.save();
+    ctx.translate(x, y + 4);
+    ctx.scale(1, 0.54);
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.lineWidth = 4.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, curRad, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.4;
+    if (progress < 0.28) ctx.setLineDash([9, 5]);
+    ctx.beginPath();
+    ctx.arc(0, 0, curRad, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Archetype-specific iconic martial geometry
+    if (kind === 'buddha_palm_ult' || kind === 'staff_mandala_ult') {
+      const petals = kind === 'staff_mandala_ult' ? 12 : 8;
+      ctx.rotate(progress * (kind === 'staff_mandala_ult' ? 2.4 : 1.1));
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, curRad * 0.66, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let k = 0; k < petals; k++) {
+        const a = (k * Math.PI * 2) / petals;
+        ctx.save();
+        ctx.rotate(a);
+        ctx.strokeStyle = k % 2 === 0 ? accent : color;
+        ctx.lineWidth = kind === 'staff_mandala_ult' ? 2.8 : 3.2;
+        ctx.beginPath();
+        if (kind === 'buddha_palm_ult') {
+          ctx.arc(curRad * 0.35, 0, curRad * 0.52, -0.45, 0.45);
+        } else {
+          ctx.moveTo(curRad * 0.24, 0);
+          ctx.lineTo(curRad * 0.96, 0);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (kind === 'cavalry_spear_ult' || kind === 'blood_dragon_ult') {
+      ctx.rotate(angle);
+      const count = kind === 'cavalry_spear_ult' ? 7 : 5;
+      for (let k = 0; k < count; k++) {
+        const off = (k - (count - 1) / 2) * (curRad * 0.22);
+        const reach = curRad * (0.45 + progress * 0.72);
+        ctx.strokeStyle = k === Math.floor(count / 2) ? accent : color;
+        ctx.lineWidth = k === Math.floor(count / 2) ? 4.2 : 2.4;
+        ctx.beginPath();
+        ctx.moveTo(-curRad * 0.45, off);
+        ctx.lineTo(reach, off);
+        ctx.stroke();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(reach, off, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (kind === 'nine_palace_trap_ult' || kind === 'thunder_array_ult') {
+      const step = curRad * 0.48;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      for (let gx = -1; gx <= 1; gx++) {
+        for (let gy = -1; gy <= 1; gy++) {
+          const px = gx * step;
+          const py = gy * step;
+          ctx.beginPath();
+          ctx.arc(px, py, curRad * 0.16, 0, Math.PI * 2);
+          ctx.stroke();
+          if (kind === 'thunder_array_ult' && (gx + gy) % 2 === 0) {
+            ctx.strokeStyle = accent;
+            ctx.beginPath();
+            ctx.moveTo(px, py - curRad * 0.75);
+            ctx.lineTo(px + 9, py - curRad * 0.35);
+            ctx.lineTo(px - 7, py - curRad * 0.12);
+            ctx.lineTo(px, py);
+            ctx.stroke();
+            ctx.strokeStyle = color;
+          }
+        }
+      }
+    } else if (kind === 'spider_venom_ult') {
+      ctx.fillStyle = `${color}26`;
+      ctx.beginPath();
+      ctx.arc(0, 0, curRad * 0.92, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.9;
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4 + progress * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * curRad * 0.96, Math.sin(a) * curRad * 0.96);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, curRad * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (kind === 'sacred_fire_hex_ult' || kind === 'six_meridian_ult') {
+      ctx.rotate(progress * 1.6);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2.4;
+      for (let tri = 0; tri < 2; tri++) {
+        ctx.beginPath();
+        for (let k = 0; k <= 3; k++) {
+          const a = (k * Math.PI * 2) / 3 + (tri * Math.PI) / 3;
+          const px = Math.cos(a) * curRad * 0.86;
+          const py = Math.sin(a) * curRad * 0.86;
+          if (k === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI) / 3;
+        ctx.fillStyle = k % 2 === 0 ? accent : color;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * curRad * 0.86, Math.sin(a) * curRad * 0.86, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (kind === 'lotus_sanctuary_ult' || kind === 'hellfire_lotus_ult') {
+      const petals = 12;
+      ctx.rotate(progress * 0.85);
+      for (let k = 0; k < petals; k++) {
+        const a = (k * Math.PI * 2) / petals;
+        ctx.save();
+        ctx.rotate(a);
+        ctx.fillStyle = k % 2 === 0 ? `${color}55` : `${accent}44`;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(curRad * 0.16, 0);
+        ctx.quadraticCurveTo(curRad * 0.56, -curRad * 0.2, curRad * 0.94, 0);
+        ctx.quadraticCurveTo(curRad * 0.56, curRad * 0.2, curRad * 0.16, 0);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (kind === 'glacier_swords_ult' || kind === 'taiji_sword_array_ult') {
+      const count = 10;
+      ctx.rotate(-progress * 1.8);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, curRad * 0.42, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let k = 0; k < count; k++) {
+        const a = (k * Math.PI * 2) / count;
+        ctx.save();
+        ctx.rotate(a);
+        ctx.strokeStyle = k % 2 === 0 ? '#FFFFFF' : color;
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(curRad * 0.44, 0);
+        ctx.lineTo(curRad * 0.96, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (kind === 'dragon_storm_ult' || kind === 'wind_thunder_vortex_ult') {
+      ctx.rotate(progress * 4.2);
+      for (let arm = 0; arm < 3; arm++) {
+        const baseA = (arm * Math.PI * 2) / 3;
+        ctx.strokeStyle = arm === 0 ? accent : color;
+        ctx.lineWidth = 4.6 * alpha + 1.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, curRad * (0.45 + arm * 0.18), baseA, baseA + 2.2);
+        ctx.stroke();
+      }
+    } else if (kind === 'guard_shield_140') {
+      ctx.fillStyle = `${color}2E`;
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      for (let k = 0; k <= 6; k++) {
+        const a = (k * Math.PI) / 3 + progress * 0.5;
+        const px = Math.cos(a) * curRad * 0.78;
+        const py = Math.sin(a) * curRad * 0.78;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.fill();
+      ctx.stroke();
+    } else if (kind === 'cleanse_dash') {
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, curRad * 0.65, 0, Math.PI * 2);
+      ctx.stroke();
+      // Crisp cleanse afterimage vector from origin to destination
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.75;
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(sourceX, sourceY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+
+    ctx.restore();
+    ctx.restore();
+    return;
+  }
+
   ctx.save();
   ctx.translate(x, y + 4);
   ctx.scale(1, 0.54);

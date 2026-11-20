@@ -76,6 +76,7 @@ export type ActiveModal =
   | 'SOCIAL_GUILD'
   | 'SIEGE'
   | 'SAGE_STUDIO'
+  | 'VFX_SHEETS'
   | 'PAUSE';
 
 export type SkillVfxKind =
@@ -142,7 +143,24 @@ export type SkillVfxKind =
   | 'taiji_domain'
   | 'sword_dash_triple'
   | 'twin_spirit_swords'
-  | 'evasion_ring';
+  | 'evasion_ring'
+  | 'buddha_palm_ult'
+  | 'staff_mandala_ult'
+  | 'cavalry_spear_ult'
+  | 'nine_palace_trap_ult'
+  | 'spider_venom_ult'
+  | 'sacred_fire_hex_ult'
+  | 'lotus_sanctuary_ult'
+  | 'glacier_swords_ult'
+  | 'six_meridian_ult'
+  | 'dragon_storm_ult'
+  | 'hellfire_lotus_ult'
+  | 'blood_dragon_ult'
+  | 'taiji_sword_array_ult'
+  | 'thunder_array_ult'
+  | 'wind_thunder_vortex_ult'
+  | 'cleanse_dash'
+  | 'guard_shield_140';
 
 export interface SkillBuffEffect {
   atkPct?: number;
@@ -161,9 +179,15 @@ export interface SkillDef {
   branch: string;
   keyBind: '1' | '2' | '3' | '4' | '5' | '6';
   unlockLevel: number;
+  maxRank?: number;
   cooldown: number; // seconds
   mpCost: number;
   multiplier: number; // % of ATK
+  atkPctPerHit?: number;
+  flatDmgPerHit?: number;
+  dotAtkPct?: number;
+  dotDurationSec?: number;
+  dotIntervalSec?: number;
   radius: number; // pixels in arena
   range: number; // cast range
   type: 'melee' | 'projectile' | 'aoe' | 'heal' | 'shield' | 'poison' | 'buff';
@@ -171,16 +195,21 @@ export interface SkillDef {
   color: string;
   accentColor: string;
   coreColor?: string;
+  darkColor?: string;
   description: string;
   effectText: string;
   hits?: number;
   projectileCount?: number;
+  projectileSpeedPx?: number;
   pierce?: boolean;
   stunSec?: number;
   slowSec?: number;
+  ccKind?: 'none' | 'stun' | 'root' | 'slow' | 'freeze' | 'fear' | 'silence' | 'knockback' | 'pull';
+  ccChancePct?: number;
   pullStrength?: number;
   pushStrength?: number;
   dashToTarget?: boolean;
+  cleanseCc?: boolean;
   stealthSec?: number;
   drainRatio?: number;
   movePoisonSec?: number;
@@ -188,6 +217,19 @@ export interface SkillDef {
   invulnSec?: number;
   dispel?: boolean;
   buffStat?: SkillBuffEffect;
+  shieldMaxHpPct?: number;
+  healMaxHpPct?: number;
+  healHpowerPct?: number;
+  mpRestoreMaxPct?: number;
+  castTimeSec?: number;
+  maxParticles?: number;
+  spriteFrames?: number;
+  maxTargetsPve?: number;
+  isUltimate150?: boolean;
+  isUltimate180?: boolean;
+  isSignature125?: boolean;
+  vfxMotif?: string;
+  catalogCode?: string;
 }
 
 export interface PassiveSkillDef {
@@ -487,10 +529,12 @@ export interface ComputedStats {
   atk: number;
   def: number;
   crit: number;
-  critDamagePct: number; // % sát thương chí mạng (mặc định 172%)
+  critDamagePct: number; // % sát thương chí mạng (cơ sở 150%)
   dodge: number;
   moveSpeedPct: number;
   allResist: number;
+  damageReducePct: number;
+  hpower: number;
   pkPenaltyPct: number;
   power: number;
 }
@@ -499,6 +543,7 @@ export interface PlayerState {
   name: string;
   sect: SectId;
   branchIndex?: 0 | 1; // Hướng tu luyện chính chọn lúc tạo nhân vật (0: nhánh 1, 1: nhánh 2)
+  equippedSkillsByBranch?: Record<string, string[]>; // 6 kỹ năng chủ động gắn phím 1–6 cho từng nhánh
   avatarUrl: string | null;
   level: number;
   exp: number;

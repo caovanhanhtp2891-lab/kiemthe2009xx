@@ -34,18 +34,80 @@ import {
   SkillDef,
 } from './types';
 
-export function getOrderedSectSkills(sectId: SectId, branchIndex: 0 | 1 = 0): SkillDef[] {
-  const sect = SECTS[sectId];
-  const primaryBranch = sect.branches[branchIndex] ?? sect.branches[0];
-  const primarySkills = sect.skills.filter((sk) => sk.branch === primaryBranch);
-  const secondarySkills = sect.skills.filter((sk) => sk.branch !== primaryBranch);
-  const ordered = [...primarySkills, ...secondarySkills];
-  const keys: SkillDef['keyBind'][] = ['1', '2', '3', '4', '5', '6'];
-  return ordered.map((sk, idx) => ({
-    ...sk,
-    keyBind: keys[idx] ?? sk.keyBind,
-  }));
+import {
+  CATALOG_BY_ID,
+  CATALOG_BY_SECT,
+  catalogSkillToSkillDef,
+  getBranchActiveSkills,
+  getBranchPermanentPassives,
+  getDefaultHotbarSkillIds,
+  getSkillRankFactor,
+} from './fullSkillCatalog';
+
+export function getSkillBranchKey(sectId: SectId, branchIndex: 0 | 1): string {
+  return `${sectId}_${branchIndex}`;
 }
+
+/**
+ * Returns the 6 active hotbar skills (keys 1–6) for the player's currently active branch,
+ * sourced from the full 457-skill catalog (Lv.10–180).
+ */
+export function getOrderedSectSkills(
+  sectId: SectId,
+  branchIndex: 0 | 1 = 0,
+  equippedIds?: string[]
+): SkillDef[] {
+  const keys: SkillDef['keyBind'][] = ['1', '2', '3', '4', '5', '6'];
+  const branchActives = getBranchActiveSkills(sectId, branchIndex);
+  const validIds = new Set(branchActives.map((s) => s.id));
+  const defaults = getDefaultHotbarSkillIds(sectId, branchIndex);
+
+  const chosenIds: string[] = [];
+  if (Array.isArray(equippedIds) && equippedIds.length > 0) {
+    for (const id of equippedIds) {
+      if (validIds.has(id) && !chosenIds.includes(id)) {
+        chosenIds.push(id);
+      }
+      if (chosenIds.length >= 6) break;
+    }
+  }
+  for (const id of defaults) {
+    if (chosenIds.length >= 6) break;
+    if (validIds.has(id) && !chosenIds.includes(id)) {
+      chosenIds.push(id);
+    }
+  }
+
+  return chosenIds.slice(0, 6).map((id, idx) => {
+    const cat = CATALOG_BY_ID[id] || branchActives[idx] || branchActives[0];
+    return catalogSkillToSkillDef(cat, keys[idx] ?? '1');
+  });
+}
+
+export function getPlayerHotbarSkills(player: PlayerState): SkillDef[] {
+  const bIdx: 0 | 1 = player.branchIndex === 1 ? 1 : 0;
+  const key = getSkillBranchKey(player.sect, bIdx);
+  const equipped = player.equippedSkillsByBranch?.[key];
+  return getOrderedSectSkills(player.sect, bIdx, equipped);
+}
+
+/**
+ * Exact spec damage reduction formula:
+ * final = raw * (1000 / (1000 + max(0, DEF))) * (1 - clamp(elemRes, 0, 0.6)) * (1 - clamp(dmgReduce, 0, 0.6))
+ */
+export function computeSpecFinalDamage(
+  rawDmg: number,
+  defenderDef: number,
+  elemResistPct = 0,
+  dmgReducePct = 0
+): number {
+  const defMult = 1000 / (1000 + Math.max(0, defenderDef));
+  const resMult = 1 - Math.max(0, Math.min(0.6, elemResistPct / 100));
+  const drMult = 1 - Math.max(0, Math.min(0.6, dmgReducePct / 100));
+  return Math.max(1, Math.round(rawDmg * defMult * resMult * drMult));
+}
+
+export { getSkillRankFactor };
 
 export const SAVE_KEY = 'vo_lam_kiem_the_save_v1';
 
@@ -56,7 +118,7 @@ export function getElementMultiplier(attacker: ElementType, defender: ElementTyp
 }
 
 export function getExpForLevel(level: number): number {
-  return Math.floor(240 * Math.pow(level, 1.55) + level * 120);
+  return Math.floor(220 * Math.pow(level, 1.48) + level * 110);
 }
 
 export function calculateItemPower(item: Omit<EquipmentItem, 'power'>): number {
@@ -357,31 +419,41 @@ export function computePlayerStats(
   nowTs = Date.now()
 ): ComputedStats {
   const sect = SECTS[player.sect];
+  const activeBranch: 0 | 1 = player.branchIndex === 1 ? 1 : 0;
   const lvlOffset = Math.max(0, player.level - 1);
 
   let maxHp = sect.baseStats.hp + lvlOffset * sect.growthPerLevel.hp;
   let maxMp = sect.baseStats.mp + lvlOffset * sect.growthPerLevel.mp;
   let atk = sect.baseStats.atk + lvlOffset * sect.growthPerLevel.atk;
   let def = sect.baseStats.def + lvlOffset * sect.growthPerLevel.def;
-  let crit = sect.baseStats.crit;
-  let critDamagePct = 172;
+  // Spec base Crit 10%, Crit Damage 150%
+  let crit = 10 + Math.max(0, sect.baseStats.crit - 10) * 0.5;
+  let critDamagePct = 150;
   let dodge = sect.baseStats.dodge;
   let moveSpeedPct = 0;
   let allResist = 0;
+  let damageReducePct = 0;
   let passiveAtkPct = 0;
   let passiveDefPct = 0;
+  let passiveHpPct = 0;
 
-  // Sect Passive Skills (Tâm Pháp Bị Động) unlocked at level milestones
-  for (const ps of sect.passives) {
-    if (player.level >= ps.unlockLevel) {
-      if (ps.bonusAtk) atk += ps.bonusAtk;
-      if (ps.bonusDef) def += ps.bonusDef;
-      if (ps.bonusHp) maxHp += ps.bonusHp;
-      if (ps.bonusCrit) crit += ps.bonusCrit;
-      if (ps.bonusDodge) dodge += ps.bonusDodge;
-      if (ps.bonusAtkPct) passiveAtkPct += ps.bonusAtkPct;
-      if (ps.bonusDefPct) passiveDefPct += ps.bonusDefPct;
-    }
+  // Active-branch-ONLY permanent passives from the 457-skill catalog (inactive branch passives do NOT apply)
+  const branchPassives = getBranchPermanentPassives(player.sect, activeBranch);
+  for (const ps of branchPassives) {
+    const rank = player.skillLevels[ps.id] || (player.level >= ps.unlockLevel ? 1 : 0);
+    if (rank <= 0 || player.level < ps.unlockLevel) continue;
+    const scale = getSkillRankFactor(rank, ps.maxRank);
+    const pb = ps.passiveBonuses;
+    if (!pb) continue;
+    if (pb.atkPct) passiveAtkPct += pb.atkPct * scale;
+    if (pb.defPct) passiveDefPct += pb.defPct * scale;
+    if (pb.hpPct) passiveHpPct += pb.hpPct * scale;
+    if (pb.critPct) crit += pb.critPct * scale;
+    if (pb.critDmgPct) critDamagePct += pb.critDmgPct * scale;
+    if (pb.dodgePct) dodge += pb.dodgePct * scale;
+    if (pb.allResistPct) allResist += pb.allResistPct * scale;
+    if (pb.moveSpeedPct) moveSpeedPct += pb.moveSpeedPct * scale;
+    if (pb.dmgReducePct) damageReducePct += pb.dmgReducePct * scale;
   }
 
   // Equipment bonuses
@@ -414,7 +486,7 @@ export function computePlayerStats(
     }
   }
 
-  // Mount Illusions (Huyễn Hóa Thú Cưỡi): all unlocked illusions stack permanently; active one grants +25% resonance when mounted
+  // Mount Illusions (Huyễn Hóa Thú Cưỡi)
   if (player.mountIllusions) {
     for (const [illId, stars] of Object.entries(player.mountIllusions)) {
       if (!stars || stars <= 0) continue;
@@ -432,7 +504,7 @@ export function computePlayerStats(
   // Temporary dynamic weather modifier on All-Element Resistance
   allResist = Math.max(0, allResist + weatherResistDelta);
 
-  // All unlocked titles grant permanent passive bonuses (stackable motivation!)
+  // All unlocked titles grant permanent passive bonuses
   for (const tid of player.unlockedTitles) {
     const t = TITLES.find((x) => x.id === tid);
     if (t) {
@@ -443,16 +515,27 @@ export function computePlayerStats(
     }
   }
 
-  // Skill level bonuses (small permanent mastery bonus)
-  const totalSkillLvls = Object.values(player.skillLevels).reduce((a, b) => a + b, 0);
-  atk += totalSkillLvls * 8;
+  // Active branch skill mastery bonus
+  const activeBranchIds = new Set(
+    (CATALOG_BY_SECT[player.sect] || [])
+      .filter((s) => s.branchIndex === activeBranch)
+      .map((s) => s.id)
+  );
+  const totalSkillLvls = Object.entries(player.skillLevels).reduce(
+    (sum, [id, lv]) => (activeBranchIds.has(id) ? sum + lv : sum),
+    0
+  );
+  atk += totalSkillLvls * 6;
 
-  // Apply Sect Passive % multipliers
+  // Apply Active-Branch Passive % multipliers
   if (passiveAtkPct > 0) {
     atk = Math.round(atk * (1 + passiveAtkPct / 100));
   }
   if (passiveDefPct > 0) {
     def = Math.round(def * (1 + passiveDefPct / 100));
+  }
+  if (passiveHpPct > 0) {
+    maxHp = Math.round(maxHp * (1 + passiveHpPct / 100));
   }
 
   // Guild War Controlled Resource Territory Buffs
@@ -510,18 +593,25 @@ export function computePlayerStats(
     maxHp = Math.max(200, Math.round(maxHp * factor));
   }
 
-  const clampedCrit = Math.min(75, Number(crit.toFixed(1)));
-  const clampedDodge = Math.min(68, Number(dodge.toFixed(1)));
+  // Spec hard caps: Crit 60%, Dodge 45%, Element Resist 60%, Damage Reduce 60%, Move Speed 80%
+  const clampedCrit = Math.min(60, Number(crit.toFixed(1)));
+  const clampedDodge = Math.min(45, Number(dodge.toFixed(1)));
+  const clampedResist = Math.min(60, Math.round(allResist));
+  const clampedDmgReduce = Math.min(60, Math.round(damageReducePct));
+  const clampedSpeed = Math.min(80, Math.round(moveSpeedPct));
+  const hpower = Math.round(atk * (player.sect === 'nga_mi' ? 1.15 : 0.95));
+
   const power = Math.round(
     atk * 4.6 +
       def * 3.5 +
       maxHp * 0.48 +
       clampedCrit * 45 +
-      (critDamagePct - 172) * 18 +
+      (critDamagePct - 150) * 18 +
       clampedDodge * 32 +
-      totalSkillLvls * 60 +
-      allResist * 42 +
-      moveSpeedPct * 12
+      totalSkillLvls * 55 +
+      clampedResist * 42 +
+      clampedDmgReduce * 48 +
+      clampedSpeed * 12
   );
 
   return {
@@ -532,8 +622,10 @@ export function computePlayerStats(
     crit: clampedCrit,
     critDamagePct: Math.round(critDamagePct),
     dodge: clampedDodge,
-    moveSpeedPct,
-    allResist,
+    moveSpeedPct: clampedSpeed,
+    allResist: clampedResist,
+    damageReducePct: clampedDmgReduce,
+    hpower,
     pkPenaltyPct: activePkPenaltyPct,
     power,
   };
@@ -549,16 +641,23 @@ export function createInitialPlayer(
   const starterArmor = generateEquipment(1, 'white', 'armor');
   const starterRing = generateEquipment(1, 'green', 'ring');
 
-  const orderedSkills = getOrderedSectSkills(sectId, branchIndex);
   const skillLevels: Record<string, number> = {};
-  orderedSkills.forEach((sk, idx) => {
-    skillLevels[sk.id] = idx === 0 || sk.unlockLevel <= 1 ? 1 : 0;
-  });
+  const sectCatalog = CATALOG_BY_SECT[sectId] || [];
+  // Unlock the Lv.10 starter active skill of both branches immediately so combat & branch switching work from Lv.1
+  for (const sk of sectCatalog) {
+    skillLevels[sk.id] = sk.activationType === 'active' && sk.unlockLevel === 10 ? 1 : 0;
+  }
+
+  const equippedSkillsByBranch: Record<string, string[]> = {
+    [getSkillBranchKey(sectId, 0)]: getDefaultHotbarSkillIds(sectId, 0),
+    [getSkillBranchKey(sectId, 1)]: getDefaultHotbarSkillIds(sectId, 1),
+  };
 
   const player: PlayerState = {
     name: name.trim() || 'Lãng Khách Võ Lâm',
     sect: sectId,
     branchIndex,
+    equippedSkillsByBranch,
     avatarUrl: null,
     level: 1,
     exp: 0,
@@ -659,17 +758,25 @@ export function loadSavedGame(): SavePayload | null {
     if (!parsed || !parsed.player || !parsed.player.sect || !SECTS[parsed.player.sect]) {
       return null;
     }
-    const sectDef = SECTS[parsed.player.sect];
+    const sectCatalog = CATALOG_BY_SECT[parsed.player.sect] || [];
     const migratedSkills: Record<string, number> = { ...(parsed.player.skillLevels || {}) };
     const playerLvl = typeof parsed.player.level === 'number' ? parsed.player.level : 1;
-    for (const sk of sectDef.skills) {
-      if ((migratedSkills[sk.id] || 0) <= 0 && playerLvl >= sk.unlockLevel) {
+    for (const sk of sectCatalog) {
+      const isStarter = sk.activationType === 'active' && sk.unlockLevel === 10;
+      if ((migratedSkills[sk.id] || 0) <= 0 && (isStarter || playerLvl >= sk.unlockLevel)) {
         migratedSkills[sk.id] = 1;
       }
     }
+    const key0 = getSkillBranchKey(parsed.player.sect, 0);
+    const key1 = getSkillBranchKey(parsed.player.sect, 1);
+    const equippedSkillsByBranch: Record<string, string[]> = {
+      [key0]: parsed.player.equippedSkillsByBranch?.[key0] || getDefaultHotbarSkillIds(parsed.player.sect, 0),
+      [key1]: parsed.player.equippedSkillsByBranch?.[key1] || getDefaultHotbarSkillIds(parsed.player.sect, 1),
+    };
     const migratedPlayer: PlayerState = {
       ...parsed.player,
       skillLevels: migratedSkills,
+      equippedSkillsByBranch,
       ownedMounts: Array.isArray(parsed.player.ownedMounts) && parsed.player.ownedMounts.length > 0
         ? parsed.player.ownedMounts
         : ['tao_hong'],

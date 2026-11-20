@@ -317,7 +317,7 @@ export const SECTS: Record<SectId, SectDef> = {
     elementName: 'Mộc',
     role: 'Chí mạng · Ám khí · Tụ Tiễn & Bẫy',
     weaponType: 'Tụ Tiễn & Cơ Quan Bẫy',
-    branches: ['Tụ Tiễn', 'Bẫy'],
+    branches: ['Tụ Tiễn', 'Hãm Tĩnh'],
     color: '#4ADE80',
     glowColor: 'rgba(74, 222, 128, 0.45)',
     summary:

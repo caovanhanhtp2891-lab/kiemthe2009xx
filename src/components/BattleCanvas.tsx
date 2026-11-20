@@ -13,7 +13,19 @@ import {
   TITLES,
   WORLD_BOSSES,
 } from '../game/data';
-import { generateEquipment, getCharacterRealm, getElementMultiplier, getOrderedSectSkills } from '../game/engine';
+import {
+  computeSpecFinalDamage,
+  generateEquipment,
+  getCharacterRealm,
+  getElementMultiplier,
+  getPlayerHotbarSkills,
+  getSkillRankFactor,
+} from '../game/engine';
+import {
+  CATALOG_BY_ID,
+  catalogSkillToSkillDef,
+  getBranchTriggerPassives,
+} from '../game/fullSkillCatalog';
 import { CombatEffectPools } from '../game/effectPool';
 import {
   drawMapGroundLayer,
@@ -43,6 +55,12 @@ import {
   renderPooledParticles,
   updatePooledParticles,
 } from '../game/skillParticleSystem';
+import {
+  SpriteVfxPool,
+  drawVfxSheetFrame,
+  preloadAllVfxSheets,
+  resolveProjectileCell,
+} from '../game/vfxSpriteSheetEngine';
 import { soundEngine } from '../game/sound';
 import {
   BattleSpriteAtlasHub,
@@ -110,6 +128,7 @@ export interface HudSnapshot {
 
 export interface BattleCanvasHandle {
   castSkill: (skillIndex: number) => void;
+  previewSkillVfx: (skillId: string) => void;
   useDash: () => void;
   usePotion: () => boolean;
 }
@@ -182,6 +201,8 @@ interface Unit {
   prevY?: number;
   mantleId?: number;
   masterSect?: SectId;
+  masterLevel?: number;
+  guildRole?: string;
   aggro?: boolean;
   patrolX?: number;
   patrolY?: number;
@@ -397,9 +418,10 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
     // Imperative queue for React UI buttons -> 60fps loop
     const pendingActionsRef = useRef<{
       castIndex: number | null;
+      previewSkillId: string | null;
       dash: boolean;
       potion: boolean;
-    }>({ castIndex: null, dash: false, potion: false });
+    }>({ castIndex: null, previewSkillId: null, dash: false, potion: false });
 
     const playerRuntimeRef = useRef({
       x: 340,
@@ -413,6 +435,8 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
       dashTimer: 0,
       stealthTimer: 0,
       invulnTimer: 0,
+      cheatDeathLockUntil: 0,
+      lowHpProcLockUntil: 0,
       buffTimer: 0,
       buffAtkPct: 0,
       buffDefPct: 0,
@@ -441,6 +465,9 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
     useImperativeHandle(ref, () => ({
       castSkill(idx: number) {
         pendingActionsRef.current.castIndex = idx;
+      },
+      previewSkillVfx(skillId: string) {
+        pendingActionsRef.current.previewSkillId = skillId;
       },
       useDash() {
         pendingActionsRef.current.dash = true;
@@ -755,6 +782,9 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         combo.tierFlash = 0;
       };
 
+      const vfxSheetPool = new SpriteVfxPool(128, 48);
+      preloadAllVfxSheets();
+
       const addParticles = (x: number, y: number, color: string, count: number, speed = 130) => {
         effectPools.spawnBurst(x, y, color, count, speed);
       };
@@ -863,7 +893,9 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         units.push({
           id: `wanderer_${pick.id}_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
           name: pick.name,
-          title: `${mSect.name} · ${pick.guildName}`,
+          title: pick.titleName || `Tân Vương ${mSect.name}`,
+          guildTag: pick.guildName,
+          guildRole: pick.rank <= 5 ? 'Bang chủ' : 'Thành viên',
           x: pos.x,
           y: pos.y,
           vx: 0,
@@ -888,6 +920,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           poisonDps: 0,
           mantleId: pick.mantleId,
           masterSect: pick.sect,
+          masterLevel: pick.level,
           aggro: false,
           patrolX: 140 + Math.random() * Math.max(160, worldW - 280),
           patrolY: 130 + Math.random() * Math.max(140, worldH - 260),
@@ -1178,6 +1211,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             name: rival.name,
             title: rival.titleName,
             guildTag: rival.guildName,
+            guildRole: rival.rank <= 5 ? 'Bang chủ' : 'Thành viên',
             x: worldW * 0.68,
             y: worldH * 0.52,
             vx: 0,
@@ -1202,6 +1236,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             poisonDps: 0,
             mantleId: rival.mantleId,
             masterSect: rival.sect,
+            masterLevel: rival.level,
             telegraphTimer: 0,
             telegraphMax: 0,
             telegraphX: 0,
@@ -1522,9 +1557,12 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         }
 
         const elemMult = getElementMultiplier(attackerElement, target.element);
-        const mitigated = Math.max(12, rawDamage * elemMult - target.def * 0.42);
-        const variance = 0.93 + Math.random() * 0.14;
-        const critMult = fromPlayer ? (propsRef.current.stats.critDamagePct || 172) / 100 : 1.72;
+        const mitigated = Math.max(
+          12,
+          computeSpecFinalDamage(rawDamage * elemMult, target.def, 0, 0)
+        );
+        const variance = 0.94 + Math.random() * 0.12;
+        const critMult = fromPlayer ? (propsRef.current.stats.critDamagePct || 150) / 100 : 1.5;
 
         // Advance uninterrupted player combo streak and resolve x2 / x3 / x5 damage amplification
         let activeComboTier: ComboTierSpec | null = null;
@@ -1644,6 +1682,29 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           addFloatText(target.x, target.y - target.radius - 26, 'Dám Đồ Sát Ta?!', '#F87171', 1.1);
         }
 
+        // Painted Per-Sect / Five-Element Hit & Collision Sprite Sheets strictly at STRUCK MONSTER coordinates (target.x, target.y)
+        const hitAngle = Math.atan2(target.y - pr.y, target.x - pr.x);
+        const hitY = target.y - Math.max(4, target.radius * 0.22);
+        if (isCrit) {
+          vfxSheetPool.spawnHitImpactBurst('crit', target.x, hitY, 94, hitAngle, attackerElement);
+          vfxSheetPool.spawnCollisionBurst('shockwave', target.x, target.y + 4, 88, hitAngle, attackerElement);
+        } else {
+          vfxSheetPool.spawnHitImpactBurst(
+            attackerElement === 'kim' || attackerElement === 'hoa' || attackerElement === 'tho' ? 'slash' : 'blunt',
+            target.x,
+            hitY,
+            68,
+            hitAngle,
+            attackerElement
+          );
+          if (fromPlayer) {
+            vfxSheetPool.spawnCollisionBurst('shockwave', target.x, target.y + 4, 62, hitAngle, attackerElement);
+          }
+        }
+        if (fromPlayer && (target.kind === 'boss' || target.kind === 'elite' || target.kind === 'rival')) {
+          vfxSheetPool.spawnCollisionBurst('parry', target.x, hitY, 64, hitAngle, attackerElement);
+        }
+
         if (fromPlayer) {
           const elemTag = elemMult > 1.05 ? ' · KHẮC HỆ' : '';
           const comboMult = activeComboTier ? activeComboTier.mult : 1;
@@ -1726,31 +1787,32 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           lastAttackerIsPlayer = attackerIsPlayer;
         }
         if (pr.invulnTimer > 0) {
+          vfxSheetPool.spawnCollisionBurst('parry', pr.x, pr.y - 6, 82, pr.facing, pSect.element);
           addFloatText(pr.x, pr.y - 30, 'Vô Địch!', '#FEF08A', 1.0);
           return;
         }
         if (pr.dashTimer > 0) {
+          vfxSheetPool.spawnCollisionBurst('parry', pr.x, pr.y - 6, 70, pr.facing, pSect.element);
           addFloatText(pr.x, pr.y - 28, 'Né Tránh!', '#67E8F9', 0.95);
           return;
         }
-        const effectiveDodge = Math.min(78, pStats.dodge + (pr.buffTimer > 0 ? pr.buffDodge : 0));
+        const effectiveDodge = Math.min(45, pStats.dodge + (pr.buffTimer > 0 ? pr.buffDodge : 0));
         if (Math.random() * 100 < effectiveDodge) {
+          vfxSheetPool.spawnCollisionBurst('parry', pr.x, pr.y - 6, 70, pr.facing, pSect.element);
           addFloatText(pr.x, pr.y - 28, 'Thân Pháp Né!', '#93C5FD', 0.95);
           return;
         }
         const elemMult = getElementMultiplier(attackerElement, pSect.element);
-        const resistFactor = 1 - Math.min(0.55, pStats.allResist / 100);
-        const enemyCritMult = isCrit ? 1.58 : 1;
+        const enemyCritMult = isCrit ? 1.5 : 1;
         const effectiveDef = pStats.def * (1 + (pr.buffTimer > 0 ? pr.buffDefPct / 100 : 0));
-        const dmgReduceMult = 1 - Math.min(0.65, (pr.buffTimer > 0 ? pr.buffDmgReducePct : 0) / 100);
+        const totalDmgReducePct = Math.min(
+          60,
+          (pStats.damageReducePct || 0) + (pr.buffTimer > 0 ? pr.buffDmgReducePct : 0)
+        );
+        const rawIncoming = rawDmg * elemMult * (0.94 + Math.random() * 0.12) * enemyCritMult;
         let dmg = Math.max(
-          8,
-          Math.round(
-            (rawDmg * elemMult * resistFactor - effectiveDef * 0.45) *
-              (0.92 + Math.random() * 0.16) *
-              enemyCritMult *
-              dmgReduceMult
-          )
+          6,
+          computeSpecFinalDamage(rawIncoming, effectiveDef, pStats.allResist, totalDmgReducePct)
         );
 
         if (pr.shield > 0) {
@@ -1758,12 +1820,66 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           pr.shield -= absorbed;
           dmg -= absorbed;
           if (absorbed > 0) {
+            vfxSheetPool.spawnCollisionBurst('shield_hit', pr.x, pr.y - 6, 90, 0, pSect.element);
             addFloatText(pr.x, pr.y - 34, `Khiên -${absorbed}`, '#67E8F9', 0.85);
           }
         }
         if (dmg > 0) {
+          const prevHp = pr.hp;
+          const nowMs = Date.now();
+          // Cheat-death / Low-HP (<25%) trigger passive (only fires crossing downward while alive, 90s cheat-death lock)
+          const activeBranch: 0 | 1 = propsRef.current.player.branchIndex === 1 ? 1 : 0;
+          const triggerPassives = getBranchTriggerPassives(propsRef.current.player.sect, activeBranch);
+          const cheatPassive = triggerPassives.find(
+            (tp) =>
+              propsRef.current.player.level >= tp.unlockLevel &&
+              (tp.isCheatDeath || tp.mechanicText.toLowerCase().includes('25%'))
+          );
+
+          if (pr.hp - dmg <= 0 && cheatPassive?.isCheatDeath && nowMs >= pr.cheatDeathLockUntil) {
+            pr.cheatDeathLockUntil = nowMs + 90_000;
+            pr.hp = Math.max(1, Math.round(pStats.maxHp * 0.2));
+            pr.invulnTimer = Math.max(pr.invulnTimer, 1.2);
+            addFloatText(pr.x, pr.y - 48, `${cheatPassive.name} · Cứu Tử!`, cheatPassive.accentColor, 1.15);
+            effectPools.spawnRing({
+              x: pr.x,
+              y: pr.y,
+              radius: 14,
+              maxRadius: 96,
+              color: cheatPassive.color,
+              accent: cheatPassive.accentColor,
+              life: 0.65,
+              maxLife: 0.65,
+              kind: cheatPassive.vfxKind,
+              element: pSect.element,
+            });
+            return;
+          }
+
           pr.hp = Math.max(0, pr.hp - dmg);
+
+          // Low-HP crossing downward past 25% while alive
+          const lowThreshold = pStats.maxHp * 0.25;
+          if (
+            prevHp >= lowThreshold &&
+            pr.hp > 0 &&
+            pr.hp < lowThreshold &&
+            cheatPassive &&
+            nowMs >= pr.lowHpProcLockUntil
+          ) {
+            const icdMs = Math.max(15, cheatPassive.internalCdSec || 35) * 1000;
+            pr.lowHpProcLockUntil = nowMs + icdMs;
+            pr.invulnTimer = Math.max(pr.invulnTimer, 1.0);
+            pr.buffTimer = Math.max(pr.buffTimer, 4.0);
+            pr.buffAtkPct = Math.max(pr.buffAtkPct, 20);
+            pr.buffLabel = cheatPassive.name;
+            pr.buffColor = cheatPassive.color;
+            pr.buffAccent = cheatPassive.accentColor;
+            addFloatText(pr.x, pr.y - 48, `${cheatPassive.name} Kích Hoạt!`, cheatPassive.accentColor, 1.1);
+          }
+
           pr.hitFlash = isCrit ? 0.22 : 0.16;
+          vfxSheetPool.spawnHitImpactBurst(isCrit ? 'crit' : 'slash', pr.x, pr.y - 8, isCrit ? 84 : 62, 0, attackerElement);
           atlasHub.trigger(PLAYER_ENTITY_ID, 'hit', {
             durationSec: 0.24,
             hitFlashSec: isCrit ? 0.22 : 0.16,
@@ -1791,15 +1907,14 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               element: attackerElement,
             });
             soundEngine.playCrit();
-            shakeIntensity = Math.max(shakeIntensity, heavy ? 8.5 : 6.2);
+            shakeIntensity = Math.max(shakeIntensity, heavy ? 7.5 : 5.2);
             hitstopTimer = Math.max(hitstopTimer, 0.045);
           } else {
             addFloatText(pr.x, pr.y - 24, `-${dmg.toLocaleString('vi-VN')}`, '#F87171', heavy ? 1.15 : 0.95);
           }
           if (heavy) {
-            shakeIntensity = Math.max(shakeIntensity, 7);
+            shakeIntensity = Math.max(shakeIntensity, 6.2);
             hitstopTimer = Math.max(hitstopTimer, 0.05);
-            // Heavy unblocked blows interrupt active combo streak
             if (combo.count > 0) {
               resetCombo(true);
             }
@@ -1807,7 +1922,6 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             if (dmg >= pStats.maxHp * 0.16) {
               resetCombo(true);
             } else {
-              // Minor chip hits pressure the combo window without instantly deleting farm streaks
               combo.timer = Math.max(0.35, combo.timer - 0.35);
             }
           }
@@ -1819,48 +1933,76 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         skill: SkillDef,
         originX: number,
         originY: number,
-        pAtk: number
+        pAtk: number,
+        rankFactor = 1
       ) => {
-        if (skill.stunSec && skill.stunSec > 0) {
-          e.stunTimer = Math.max(e.stunTimer, skill.stunSec);
-          addFloatText(e.x, e.y - e.radius - 16, 'Bất Động!', '#FDE047', 0.92);
+        const isBoss = e.kind === 'boss';
+        const ccRoll = (skill.ccChancePct ?? 100) >= 100 || Math.random() * 100 < (skill.ccChancePct ?? 100);
+        const wantsHardCc = Boolean(
+          (skill.stunSec && skill.stunSec > 0) ||
+            (skill.pullStrength && skill.pullStrength > 0) ||
+            (skill.pushStrength && skill.pushStrength > 0)
+        );
+
+        // Spec Boss rule: Boss is immune to pull, push, panic/fear, freeze, stun -> converted to slow 20% for 1s
+        if (isBoss && wantsHardCc && ccRoll) {
+          e.slowTimer = Math.max(e.slowTimer, 1.0);
+          addFloatText(e.x, e.y - e.radius - 16, 'Chậm 20% (1s)', '#93C5FD', 0.85);
+        } else if (ccRoll) {
+          if (skill.stunSec && skill.stunSec > 0) {
+            e.stunTimer = Math.max(e.stunTimer, skill.stunSec);
+            const ccLabel =
+              skill.ccKind === 'freeze'
+                ? 'Đóng Băng!'
+                : skill.ccKind === 'fear'
+                ? 'Hoảng Loạn!'
+                : skill.ccKind === 'silence'
+                ? 'Câm Lặng!'
+                : skill.ccKind === 'stun'
+                ? 'Choáng!'
+                : 'Bất Động!';
+            addFloatText(e.x, e.y - e.radius - 16, ccLabel, '#FDE047', 0.92);
+          }
+          if (skill.slowSec && skill.slowSec > 0) {
+            e.slowTimer = Math.max(e.slowTimer, skill.slowSec);
+          }
         }
-        if (skill.slowSec && skill.slowSec > 0) {
-          e.slowTimer = Math.max(e.slowTimer, skill.slowSec);
+
+        // Spec DoT: scales with rankFactor, no crit, no lifesteal, no chain procs; same skill refreshes duration
+        if (skill.dotAtkPct && skill.dotAtkPct > 0 && skill.dotDurationSec && skill.dotDurationSec > 0) {
+          const interval = Math.max(0.5, skill.dotIntervalSec || 1);
+          const dotDps = Math.max(8, Math.round((pAtk * skill.dotAtkPct * rankFactor) / interval));
+          if (skill.burnSec && skill.burnSec > 0) {
+            e.burnTimer = Math.max(e.burnTimer || 0, skill.dotDurationSec);
+            e.burnDps = Math.max(e.burnDps || 0, dotDps);
+          } else {
+            e.poisonTimer = Math.max(e.poisonTimer, skill.dotDurationSec);
+            e.poisonDps = Math.max(e.poisonDps, dotDps);
+          }
+        } else if (skill.type === 'poison') {
+          e.poisonTimer = Math.max(e.poisonTimer, 4.0);
+          e.poisonDps = Math.max(e.poisonDps, Math.round(pAtk * 0.42 * rankFactor));
         }
-        if (skill.type === 'poison') {
-          e.poisonTimer = Math.max(e.poisonTimer, 4.2);
-          e.poisonDps = Math.max(e.poisonDps, Math.round(pAtk * 0.45));
-        }
-        if (skill.burnSec && skill.burnSec > 0) {
-          e.burnTimer = Math.max(e.burnTimer || 0, skill.burnSec);
-          e.burnDps = Math.max(e.burnDps || 0, Math.round(pAtk * 0.38));
-        }
+
         if (skill.movePoisonSec && skill.movePoisonSec > 0) {
           e.movePoisonTimer = Math.max(e.movePoisonTimer || 0, skill.movePoisonSec);
-          e.movePoisonDps = Math.max(e.movePoisonDps || 0, Math.round(pAtk * 0.6));
+          e.movePoisonDps = Math.max(e.movePoisonDps || 0, Math.round(pAtk * 0.55 * rankFactor));
           addFloatText(e.x, e.y - e.radius - 18, 'Hóa Cốt Độc!', '#A855F7', 0.92);
         }
         if (skill.dispel) {
-          if (e.telegraphTimer > 0) {
-            e.telegraphTimer = 0;
-          }
-          if (e.enraged) {
-            e.enraged = false;
-          }
+          if (e.telegraphTimer > 0) e.telegraphTimer = 0;
+          if (e.enraged) e.enraged = false;
           addFloatText(e.x, e.y - e.radius - 20, 'Xóa Hỗ Trợ!', '#A7F3D0', 0.95);
         }
-        if (
-          e.kind !== 'gate' &&
-          e.kind !== 'pillar' &&
-          e.kind !== 'banner'
-        ) {
+
+        // Push/Pull displacement ONLY for non-boss & non-structures (Boss immune per spec)
+        if (!isBoss && e.kind !== 'gate' && e.kind !== 'pillar' && e.kind !== 'banner') {
           const castElem = SECTS[propsRef.current.player.sect].element;
           if (skill.pullStrength && skill.pullStrength > 0) {
             const pa = Math.atan2(originY - e.y, originX - e.x);
-            const pull = e.kind === 'boss' ? skill.pullStrength * 0.35 : skill.pullStrength;
-            e.knockbackX = Math.cos(pa) * pull;
-            e.knockbackY = Math.sin(pa) * pull;
+            e.knockbackX = Math.cos(pa) * skill.pullStrength;
+            e.knockbackY = Math.sin(pa) * skill.pullStrength;
+            vfxSheetPool.spawnCollisionBurst('ground_push', e.x, e.y + 4, 78, pa, castElem);
             emitTargetPullStream(
               effectPools,
               originX,
@@ -1873,9 +2015,9 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             );
           } else if (skill.pushStrength && skill.pushStrength > 0) {
             const pa = Math.atan2(e.y - originY, e.x - originX);
-            const push = e.kind === 'boss' ? skill.pushStrength * 0.32 : skill.pushStrength;
-            e.knockbackX = Math.cos(pa) * push;
-            e.knockbackY = Math.sin(pa) * push;
+            e.knockbackX = Math.cos(pa) * skill.pushStrength;
+            e.knockbackY = Math.sin(pa) * skill.pushStrength;
+            vfxSheetPool.spawnCollisionBurst('ground_push', e.x, e.y + 4, 82, pa, castElem);
             emitTargetPushBurst(
               effectPools,
               originX,
@@ -1888,13 +2030,178 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             );
           }
         }
+
+        // Elemental status hit splash from Hit Impact Sheet Row 4
+        if (
+          (skill.dotAtkPct && skill.dotAtkPct > 0) ||
+          (skill.stunSec && skill.stunSec > 0) ||
+          (skill.slowSec && skill.slowSec > 0)
+        ) {
+          const castElem = SECTS[propsRef.current.player.sect].element;
+          vfxSheetPool.spawnHitImpactBurst('status_element', e.x, e.y - 6, 54, 0, castElem);
+        }
+      };
+
+      // Live visual showcase preview invoked from SkillsWindow ("Xem Hiệu Ứng") without costing MP/CD or dealing damage
+      const triggerSkillVisualPreview = (skillId: string) => {
+        const cat = CATALOG_BY_ID[skillId];
+        if (!cat) return;
+        const p = propsRef.current.player;
+        const sect = SECTS[p.sect];
+        const skill = catalogSkillToSkillDef(cat, '1');
+        const vfxKind = skill.vfxKind || 'ring';
+        const angle = pr.facing;
+        const crowdFactor = units.length >= 10 ? 0.35 : 1;
+
+        pr.castMax = 0.46;
+        pr.castTimer = 0.46;
+        atlasHub.trigger(PLAYER_ENTITY_ID, 'cast', { durationSec: 0.46, force: true });
+        soundEngine.playSkill(skill.isUltimate180 ? 520 : skill.isUltimate150 ? 440 : 300);
+        vfxSheetPool.spawnCastingBurst(
+          sect.element,
+          pr.x,
+          pr.y,
+          angle,
+          skill.isUltimate180 || skill.isUltimate150 ? 104 : 84,
+          p.sect,
+          skill.type === 'projectile' || skill.type === 'aoe' || skill.type === 'melee'
+        );
+
+        const previewEnemies = units.filter((u) => isUnitHostileToPlayer(u));
+        const previewTarget =
+          previewEnemies.length > 0
+            ? previewEnemies.reduce((best, cur) =>
+                Math.hypot(cur.x - pr.x, cur.y - pr.y) < Math.hypot(best.x - pr.x, best.y - pr.y) ? cur : best
+              )
+            : null;
+        const previewAngle = previewTarget
+          ? Math.atan2(previewTarget.y - pr.y, previewTarget.x - pr.x)
+          : angle;
+        if (previewTarget) pr.facing = previewAngle;
+
+        const isSelfCentered =
+          skill.type === 'buff' ||
+          skill.type === 'heal' ||
+          skill.type === 'shield' ||
+          vfxKind === 'guard_shield_140' ||
+          vfxKind === 'lotus_sanctuary_ult';
+
+        const tx = isSelfCentered
+          ? pr.x
+          : previewTarget && Math.hypot(previewTarget.x - pr.x, previewTarget.y - pr.y) <= 440
+          ? previewTarget.x
+          : pr.x + Math.cos(previewAngle) * Math.min(180, Math.max(105, skill.radius * 0.95));
+        const ty = isSelfCentered
+          ? pr.y
+          : previewTarget && Math.hypot(previewTarget.x - pr.x, previewTarget.y - pr.y) <= 440
+          ? previewTarget.y
+          : pr.y + Math.sin(previewAngle) * Math.min(180, Math.max(105, skill.radius * 0.95));
+        const isUlt = Boolean(skill.isUltimate150 || skill.isUltimate180 || skill.isSignature125);
+        const life = skill.isUltimate180 ? 1.15 : skill.isUltimate150 ? 0.95 : 0.72;
+
+        if (skill.type === 'projectile') {
+          const count = Math.min(8, Math.max(1, skill.projectileCount || 1));
+          const projSpeed = skill.projectileSpeedPx || 520;
+          for (let i = 0; i < count; i++) {
+            const fanSpan = count > 1 ? Math.min(0.7, (count - 1) * 0.14) : 0;
+            const a = count > 1 ? previewAngle - fanSpan / 2 + (fanSpan * i) / (count - 1) : previewAngle;
+            effectPools.spawnProjectile({
+              x: pr.x + Math.cos(a) * 20,
+              y: pr.y + Math.sin(a) * 20,
+              vx: Math.cos(a) * projSpeed,
+              vy: Math.sin(a) * projSpeed,
+              radius: 12,
+              color: skill.color,
+              accent: skill.accentColor,
+              team: 'ally',
+              damage: 0,
+              crit: false,
+              element: sect.element,
+              life: 0.78,
+              pierce: true,
+              vfxKind,
+            });
+          }
+          emitSkillCastParticles(effectPools, {
+            skill,
+            element: sect.element,
+            originX: pr.x,
+            originY: pr.y,
+            targetX: tx,
+            targetY: ty,
+            angle: previewAngle,
+            isUltimate: isUlt,
+            crowdFactor,
+          });
+        } else {
+          effectPools.spawnRing({
+            x: tx,
+            y: ty,
+            radius: 18,
+            maxRadius: Math.max(76, skill.radius),
+            color: skill.color,
+            accent: skill.accentColor,
+            life,
+            maxLife: life,
+            kind: vfxKind,
+            angle: previewAngle,
+            element: sect.element,
+            sourceX: pr.x,
+            sourceY: pr.y,
+          });
+          if (isSelfCentered) {
+            vfxSheetPool.spawnSkillBurst(
+              sect.element,
+              vfxKind,
+              tx,
+              ty,
+              Math.max(76, skill.radius),
+              previewAngle,
+              life * 0.92,
+              p.sect
+            );
+          } else {
+            vfxSheetPool.spawnTravelingSkill(
+              sect.element,
+              vfxKind,
+              pr.x,
+              pr.y,
+              tx,
+              ty,
+              Math.max(76, skill.radius),
+              life * 0.92,
+              p.sect
+            );
+          }
+
+          emitSkillCastParticles(effectPools, {
+            skill,
+            element: sect.element,
+            originX: pr.x,
+            originY: pr.y,
+            targetX: tx,
+            targetY: ty,
+            angle: previewAngle,
+            isUltimate: isUlt,
+            crowdFactor,
+          });
+        }
+
+        const tierLabel = skill.isUltimate180
+          ? 'Chân Truyền 180'
+          : skill.isUltimate150
+          ? 'Tuyệt Kỹ 150'
+          : skill.isSignature125
+          ? 'Trấn Phái 125'
+          : `Lv.${skill.unlockLevel}`;
+        addFloatText(pr.x, pr.y - 52, `${skill.name} (${tierLabel})`, skill.accentColor || skill.color, 1.08);
       };
 
       const performSkill = (skillIdx: number) => {
         const p = propsRef.current.player;
         const pStats = propsRef.current.stats;
         const sect = SECTS[p.sect];
-        const orderedSkills = getOrderedSectSkills(p.sect, p.branchIndex ?? 0);
+        const orderedSkills = getPlayerHotbarSkills(p);
         const skill: SkillDef | undefined = orderedSkills[skillIdx];
         if (!skill) return;
 
@@ -1905,6 +2212,10 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
 
         pr.mp = Math.max(0, pr.mp - skill.mpCost);
         pr.cooldowns[skillIdx] = skill.cooldown;
+
+        const maxRank = skill.maxRank || 20;
+        const rankFactor = getSkillRankFactor(skLevel, maxRank);
+        const crowdFactor = units.length >= 10 ? 0.35 : 1;
 
         const wasStealthed = pr.stealthTimer > 0;
         const isDefensiveOnly =
@@ -1919,14 +2230,54 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         const atkBoost = 1 + (pr.buffTimer > 0 ? pr.buffAtkPct / 100 : 0);
         const critBoost =
           (pr.buffTimer > 0 ? pr.buffCrit : 0) +
-          (wasStealthed && !isDefensiveOnly ? 38 : 0) +
-          (p.sect === 'duong_mon' || p.sect === 'thuy_yen' ? 8 : 0);
+          (wasStealthed && !isDefensiveOnly ? 32 : 0);
+        const effectiveCrit = Math.min(60, pStats.crit + critBoost);
 
-        const skillMult = skill.multiplier * (1 + (skLevel - 1) * 0.12);
-        const baseDmg = pStats.atk * atkBoost * skillMult;
-        const isCrit = Math.random() * 100 < pStats.crit + critBoost;
-        const vfxKind = skill.vfxKind || 'ring';
         const hitCount = Math.max(1, skill.hits || 1);
+        const perHitSpecDmg =
+          skill.atkPctPerHit && skill.atkPctPerHit > 0
+            ? (pStats.atk * atkBoost * skill.atkPctPerHit + (skill.flatDmgPerHit || 0)) * rankFactor
+            : pStats.atk * atkBoost * skill.multiplier * rankFactor / (hitCount > 1 ? 1 + (hitCount - 1) * 0.55 : 1);
+        const baseDmg = perHitSpecDmg * hitCount;
+        const isCrit = Math.random() * 100 < effectiveCrit;
+        const vfxKind = skill.vfxKind || 'ring';
+        const isUltimateCast = Boolean(skill.isUltimate150 || skill.isUltimate180 || skill.isSignature125);
+
+        // Spec Lv.160 post-150 trigger passive: restores 10% MP & reduces non-150/180 cooldowns by 2s (never resets 150/180)
+        if (skill.isUltimate150) {
+          const activeBranch: 0 | 1 = p.branchIndex === 1 ? 1 : 0;
+          const lv160Trigger = getBranchTriggerPassives(p.sect, activeBranch).find(
+            (tp) => tp.unlockLevel === 160 && p.level >= 160
+          );
+          if (lv160Trigger) {
+            const mpGain = Math.round(pStats.maxMp * 0.1);
+            pr.mp = Math.min(pStats.maxMp, pr.mp + mpGain);
+            for (let ci = 0; ci < orderedSkills.length; ci++) {
+              const other = orderedSkills[ci];
+              if (!other || other.isUltimate150 || other.isUltimate180) continue;
+              if (pr.cooldowns[ci] > 0) {
+                pr.cooldowns[ci] = Math.max(0, pr.cooldowns[ci] - 2);
+              }
+            }
+            addFloatText(pr.x, pr.y - 60, `${lv160Trigger.name} · +${mpGain} Nội Lực`, lv160Trigger.accentColor, 0.96);
+          }
+        }
+
+        // Spec MP restore effect if skill grants mana recovery
+        if (skill.mpRestoreMaxPct && skill.mpRestoreMaxPct > 0) {
+          const mpRatio = skill.mpRestoreMaxPct > 1 ? skill.mpRestoreMaxPct / 100 : skill.mpRestoreMaxPct;
+          const mpGain = Math.round(pStats.maxMp * mpRatio * rankFactor);
+          if (mpGain > 0) {
+            pr.mp = Math.min(pStats.maxMp, pr.mp + mpGain);
+            addFloatText(pr.x, pr.y - 38, `+${mpGain} Nội Lực`, '#67E8F9', 0.92);
+          }
+        }
+
+        // Spec Lv.170 cleanse CC + brief control immunity
+        if (skill.cleanseCc) {
+          pr.invulnTimer = Math.max(pr.invulnTimer, 0.9);
+          addFloatText(pr.x, pr.y - 50, 'Giải Khống!', '#A7F3D0', 1.05);
+        }
 
         // Pick best target (includes hostile wandering players in PK slaughter mode)
         const enemies = units.filter((u) => isUnitHostileToPlayer(u));
@@ -1943,21 +2294,33 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         const angle = target ? Math.atan2(target.y - pr.y, target.x - pr.x) : pr.facing;
         pr.facing = angle;
 
-        // Trigger state-driven 8-dir Attack or Cast animation clip via centralized hub
-        if (skill.type === 'melee' || skill.type === 'projectile') {
+        // Trigger state-driven 8-dir Attack or 6-frame Casting animation clip + dedicated Casting VFX at caster
+        // (cleanly separated from Hit & Collision sheets which fire strictly at the struck monster)
+        if (skill.type === 'melee') {
           pr.attackMax = 0.34;
           pr.attackTimer = 0.34;
           atlasHub.trigger(PLAYER_ENTITY_ID, 'attack', { durationSec: 0.34, force: true });
+          vfxSheetPool.spawnCastingBurst(sect.element, pr.x, pr.y, angle, 74, p.sect, true);
         } else {
-          pr.castMax = 0.45;
-          pr.castTimer = 0.45;
-          atlasHub.trigger(PLAYER_ENTITY_ID, 'cast', { durationSec: 0.45, force: true });
+          const castDur = isUltimateCast ? 0.5 : 0.42;
+          pr.castMax = castDur;
+          pr.castTimer = castDur;
+          atlasHub.trigger(PLAYER_ENTITY_ID, 'cast', { durationSec: castDur, force: true });
+          vfxSheetPool.spawnCastingBurst(
+            sect.element,
+            pr.x,
+            pr.y,
+            angle,
+            isUltimateCast ? 104 : 84,
+            p.sect,
+            skill.type === 'projectile' || skill.type === 'aoe' || skill.type === 'poison'
+          );
         }
 
-        // Audio pitch per skill slot
-        soundEngine.playSkill(220 + skillIdx * 75);
+        // Audio pitch per skill tier / slot
+        soundEngine.playSkill(skill.isUltimate180 ? 520 : skill.isUltimate150 ? 445 : 220 + skillIdx * 65);
 
-        // Apply temporary combat buff if skill grants one (works on buff, shield, aoe, etc.)
+        // Apply temporary combat buff if skill grants one
         if (skill.buffStat) {
           pr.buffTimer = Math.max(pr.buffTimer, skill.buffStat.durationSec);
           pr.buffAtkPct = skill.buffStat.atkPct ?? pr.buffAtkPct;
@@ -1969,20 +2332,20 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           pr.buffLabel = skill.buffStat.label;
           pr.buffColor = skill.color;
           pr.buffAccent = skill.accentColor;
-          addFloatText(pr.x, pr.y - 44, skill.buffStat.label, skill.accentColor, 1.05);
+          addFloatText(pr.x, pr.y - 44, skill.buffStat.label, skill.accentColor, 1.02);
         }
 
-        // Apply temporary invulnerability (Từ Hàng Phổ Độ / Bất Tử)
+        // Apply temporary invulnerability
         if (skill.invulnSec && skill.invulnSec > 0) {
           pr.invulnTimer = Math.max(pr.invulnTimer, skill.invulnSec);
-          addFloatText(pr.x, pr.y - 54, `Vô Địch ${skill.invulnSec}s!`, '#FEF08A', 1.15);
+          addFloatText(pr.x, pr.y - 54, `Vô Địch ${skill.invulnSec}s!`, '#FEF08A', 1.1);
         }
 
-        // Apply stealth (Thúy Yên — Ngự Tuyết Ẩn)
+        // Apply stealth
         if (skill.stealthSec && skill.stealthSec > 0) {
           pr.stealthTimer = Math.max(pr.stealthTimer, skill.stealthSec);
-          addFloatText(pr.x, pr.y - 42, `Ẩn Thân ${skill.stealthSec}s`, '#BAE6FD', 1.1);
-          addParticles(pr.x, pr.y, '#BAE6FD', 20, 140);
+          addFloatText(pr.x, pr.y - 42, `Ẩn Thân ${skill.stealthSec}s`, '#BAE6FD', 1.08);
+          addParticles(pr.x, pr.y, '#BAE6FD', Math.max(6, Math.round(16 * crowdFactor)), 140);
           effectPools.spawnRing({
             x: pr.x,
             y: pr.y,
@@ -2009,7 +2372,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             pr.x + Math.cos(angle) * desiredDist,
             pr.y + Math.sin(angle) * desiredDist
           );
-          addParticles(pr.x, pr.y, skill.color, 14, 130);
+          addParticles(pr.x, pr.y, skill.color, Math.max(5, Math.round(12 * crowdFactor)), 130);
           effectPools.spawnRing({
             x: pr.x,
             y: pr.y,
@@ -2026,11 +2389,13 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           pr.x = dest.x;
           pr.y = dest.y;
           pr.dashTimer = Math.max(pr.dashTimer, 0.24);
-          addParticles(pr.x, pr.y, skill.accentColor, 16, 150);
+          addParticles(pr.x, pr.y, skill.accentColor, Math.max(6, Math.round(14 * crowdFactor)), 150);
           soundEngine.playSlash();
         }
 
-        // Pure Buff / Stealth / Blink-only skills (no direct damage)
+        const maxTargets = skill.maxTargetsPve || 16;
+
+        // Pure Buff / Stealth / Blink-only skills
         if (skill.type === 'buff') {
           if (!skill.stealthSec) {
             effectPools.spawnRing({
@@ -2047,6 +2412,18 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               element: sect.element,
             });
           }
+          if (!skill.stealthSec) {
+            vfxSheetPool.spawnSkillBurst(
+              sect.element,
+              vfxKind,
+              pr.x,
+              pr.y,
+              Math.max(72, skill.radius),
+              angle,
+              0.62,
+              p.sect
+            );
+          }
           emitSkillCastParticles(effectPools, {
             skill,
             element: sect.element,
@@ -2055,24 +2432,47 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             targetX: pr.x,
             targetY: pr.y,
             angle,
-            isUltimate: skillIdx === 2 || skillIdx === 5,
+            isUltimate: isUltimateCast,
+            crowdFactor,
           });
           if (skill.multiplier > 0) {
+            let hitUnits = 0;
             for (const e of validEnemies) {
+              if (hitUnits >= maxTargets) break;
               if (Math.hypot(e.x - pr.x, e.y - pr.y) <= skill.radius + e.radius) {
-                damageUnit(e, baseDmg, isCrit, sect.element, true);
-                applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk);
+                damageUnit(e, perHitSpecDmg, isCrit, sect.element, true);
+                applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk, rankFactor);
+                hitUnits += 1;
               }
             }
           }
           return;
         }
 
-        // Heal skills (Nga Mi — Từ Hàng Phổ Độ / Phật Quang)
+        // Heal skills (exact spec heal formula using maxHP% + HPower%)
         if (skill.type === 'heal') {
-          const healAmt = Math.round(pStats.maxHp * (0.32 + skLevel * 0.02));
+          const healHpRatio = skill.healMaxHpPct
+            ? skill.healMaxHpPct > 1
+              ? skill.healMaxHpPct / 100
+              : skill.healMaxHpPct
+            : 0.24 + 0.16 * rankFactor;
+          const healFromMaxHp = pStats.maxHp * healHpRatio * (skill.healMaxHpPct ? rankFactor : 1);
+          const hpowerRatio = skill.healHpowerPct
+            ? skill.healHpowerPct > 1
+              ? skill.healHpowerPct / 100
+              : skill.healHpowerPct
+            : 0;
+          const healFromHpower = hpowerRatio
+            ? (pStats.hpower || pStats.atk * 0.65) * hpowerRatio * rankFactor
+            : 0;
+          const healAmt = Math.max(40, Math.round(healFromMaxHp + healFromHpower));
           pr.hp = Math.min(pStats.maxHp, pr.hp + healAmt);
-          addFloatText(pr.x, pr.y - 34, `+${healAmt} Sinh Lực`, '#4ADE80', 1.15);
+          addFloatText(pr.x, pr.y - 34, `+${healAmt} Sinh Lực`, '#4ADE80', 1.12);
+          if (skill.shieldMaxHpPct && skill.shieldMaxHpPct > 0) {
+            const shRatio = skill.shieldMaxHpPct > 1 ? skill.shieldMaxHpPct / 100 : skill.shieldMaxHpPct;
+            const bonusShield = Math.round(pStats.maxHp * shRatio * rankFactor);
+            pr.shield = Math.max(pr.shield, bonusShield);
+          }
           effectPools.spawnRing({
             x: pr.x,
             y: pr.y,
@@ -2080,12 +2480,22 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             maxRadius: skill.radius,
             color: skill.color,
             accent: skill.accentColor,
-            life: 0.68,
-            maxLife: 0.68,
+            life: skill.isUltimate180 ? 1.0 : 0.72,
+            maxLife: skill.isUltimate180 ? 1.0 : 0.72,
             kind: vfxKind,
             angle,
             element: sect.element,
           });
+          vfxSheetPool.spawnSkillBurst(
+            sect.element,
+            vfxKind,
+            pr.x,
+            pr.y,
+            Math.max(74, skill.radius),
+            angle,
+            skill.isUltimate180 ? 0.86 : 0.68,
+            p.sect
+          );
           emitSkillCastParticles(effectPools, {
             skill,
             element: sect.element,
@@ -2094,26 +2504,35 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             targetX: pr.x,
             targetY: pr.y,
             angle,
-            isUltimate: skillIdx === 2 || skillIdx === 5,
+            isUltimate: isUltimateCast,
+            crowdFactor,
           });
           if (skill.multiplier > 0) {
+            let hitUnits = 0;
             for (const e of validEnemies) {
+              if (hitUnits >= maxTargets) break;
               if (Math.hypot(e.x - pr.x, e.y - pr.y) <= skill.radius + e.radius) {
-                damageUnit(e, baseDmg, isCrit, sect.element, true);
-                applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk);
+                damageUnit(e, perHitSpecDmg, isCrit, sect.element, true);
+                applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk, rankFactor);
+                hitUnits += 1;
               }
             }
           }
           return;
         }
 
-        // Shield skills (Kim Chung Tráo, Tọa Vọng Vô Ngã, Bắc Minh Thần Công, Bôn Lôi Toàn Long Thương)
+        // Shield skills (exact spec shield formula + optional damage)
         if (skill.type === 'shield') {
-          const shieldAmt = Math.round(pStats.maxHp * (0.34 + skLevel * 0.022));
+          const shieldPct = skill.shieldMaxHpPct
+            ? skill.shieldMaxHpPct > 1
+              ? skill.shieldMaxHpPct / 100
+              : skill.shieldMaxHpPct
+            : 0.24;
+          const shieldAmt = Math.max(60, Math.round(pStats.maxHp * shieldPct * rankFactor));
           pr.shield = Math.max(pr.shield, shieldAmt);
           pr.buffColor = skill.color;
           pr.buffAccent = skill.accentColor;
-          addFloatText(pr.x, pr.y - 36, `Hộ Thể +${shieldAmt}`, skill.accentColor, 1.12);
+          addFloatText(pr.x, pr.y - 36, `Hộ Thể +${shieldAmt}`, skill.accentColor, 1.1);
           effectPools.spawnRing({
             x: pr.x,
             y: pr.y,
@@ -2121,12 +2540,22 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             maxRadius: skill.radius,
             color: skill.color,
             accent: skill.accentColor,
-            life: 0.7,
-            maxLife: 0.7,
+            life: 0.72,
+            maxLife: 0.72,
             kind: vfxKind,
             angle,
             element: sect.element,
           });
+          vfxSheetPool.spawnSkillBurst(
+            sect.element,
+            vfxKind,
+            pr.x,
+            pr.y,
+            Math.max(72, skill.radius),
+            angle,
+            0.66,
+            p.sect
+          );
           emitSkillCastParticles(effectPools, {
             skill,
             element: sect.element,
@@ -2135,46 +2564,54 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             targetX: pr.x,
             targetY: pr.y,
             angle,
-            isUltimate: skillIdx === 2 || skillIdx === 5,
+            isUltimate: isUltimateCast,
+            crowdFactor,
           });
           if (skill.multiplier > 0) {
+            let hitUnits = 0;
             for (const e of validEnemies) {
+              if (hitUnits >= maxTargets) break;
               if (Math.hypot(e.x - pr.x, e.y - pr.y) <= skill.radius + e.radius) {
-                damageUnit(e, baseDmg, isCrit, sect.element, true);
-                applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk);
+                damageUnit(e, perHitSpecDmg, isCrit, sect.element, true);
+                applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk, rankFactor);
+                hitUnits += 1;
               }
             }
           }
           return;
         }
 
-        // Projectile skills (waves, needles, venom palms, ice shards, 6-meridian swords, dragon palms, etc.)
+        // Projectile skills — projectiles fly cleanly from caster to monster & detonate ON THE MONSTER
         if (skill.type === 'projectile') {
           const count = Math.max(1, skill.projectileCount || 1);
           const perProjDmg = baseDmg / (count > 1 ? 1 + (count - 1) * 0.28 : 1);
           const isRadial = count >= 8;
           const isTwinParallel = count === 2 && vfxKind === 'blade_wave_line';
-          const projSpeed = vfxKind === 'needle_barrage' ? 560 : vfxKind === 'six_swords' ? 540 : 490;
+          const projSpeed =
+            skill.projectileSpeedPx ||
+            (vfxKind === 'needle_barrage' ? 580 : vfxKind === 'six_swords' || vfxKind === 'six_meridian_ult' ? 560 : 510);
+          const targetDist = target ? Math.hypot(target.x - pr.x, target.y - pr.y) : skill.range;
+          const projLife = Math.max(0.75, Math.min(1.55, Math.max(skill.range, targetDist + 70) / projSpeed + 0.24));
 
           for (let i = 0; i < count; i++) {
             let a = angle;
-            let spawnX = pr.x + Math.cos(angle) * 20;
-            let spawnY = pr.y + Math.sin(angle) * 20;
+            let spawnX = pr.x + Math.cos(angle) * 22;
+            let spawnY = pr.y + Math.sin(angle) * 22;
 
             if (isRadial) {
               a = angle + (i * Math.PI * 2) / count;
-              spawnX = pr.x + Math.cos(a) * 18;
-              spawnY = pr.y + Math.sin(a) * 18;
+              spawnX = pr.x + Math.cos(a) * 20;
+              spawnY = pr.y + Math.sin(a) * 20;
             } else if (isTwinParallel) {
               const perp = angle + Math.PI / 2;
-              const offset = i === 0 ? -13 : 13;
-              spawnX = pr.x + Math.cos(angle) * 18 + Math.cos(perp) * offset;
-              spawnY = pr.y + Math.sin(angle) * 18 + Math.sin(perp) * offset;
+              const offset = i === 0 ? -14 : 14;
+              spawnX = pr.x + Math.cos(angle) * 20 + Math.cos(perp) * offset;
+              spawnY = pr.y + Math.sin(angle) * 20 + Math.sin(perp) * offset;
             } else if (count > 1) {
               const fanSpan = Math.min(0.68, (count - 1) * 0.13);
               a = angle - fanSpan / 2 + (fanSpan * i) / (count - 1);
-              spawnX = pr.x + Math.cos(a) * 20;
-              spawnY = pr.y + Math.sin(a) * 20;
+              spawnX = pr.x + Math.cos(a) * 22;
+              spawnY = pr.y + Math.sin(a) * 22;
             }
 
             effectPools.spawnProjectile({
@@ -2183,25 +2620,27 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               vx: Math.cos(a) * projSpeed,
               vy: Math.sin(a) * projSpeed,
               radius:
-                vfxKind === 'dragon_palm'
-                  ? 15
+                vfxKind === 'dragon_palm' || vfxKind === 'dragon_storm_ult'
+                  ? 18
                   : vfxKind === 'blade_wave_line'
-                  ? 13
+                  ? 16
                   : vfxKind === 'needle_barrage'
-                  ? 7
-                  : 10,
+                  ? 10
+                  : 13,
               color: skill.color,
               accent: skill.accentColor,
               team: 'ally',
               damage: perProjDmg,
               crit: isCrit,
               element: sect.element,
-              life: Math.max(0.55, Math.min(1.15, skill.range / projSpeed + 0.18)),
+              life: projLife,
               pierce: Boolean(skill.pierce),
               slow: Boolean(skill.slowSec && skill.slowSec > 0),
               poisonDps:
-                vfxKind === 'venom_palm' || vfxKind === 'venom_curse' || Boolean(skill.movePoisonSec)
-                  ? Math.round(pStats.atk * 0.42)
+                skill.dotAtkPct && skill.dotAtkPct > 0
+                  ? Math.round(pStats.atk * skill.dotAtkPct * rankFactor)
+                  : vfxKind === 'venom_palm' || vfxKind === 'venom_curse' || Boolean(skill.movePoisonSec)
+                  ? Math.round(pStats.atk * 0.42 * rankFactor)
                   : 0,
               stunSec: skill.stunSec || 0,
               pushStrength: skill.pushStrength || 0,
@@ -2212,37 +2651,42 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             });
           }
 
-          effectPools.spawnRing({
-            x: pr.x + Math.cos(angle) * 28,
-            y: pr.y + Math.sin(angle) * 28,
-            radius: 14,
-            maxRadius: Math.max(58, Math.min(110, skill.radius)),
-            color: skill.color,
-            accent: skill.accentColor,
-            life: 0.34,
-            maxLife: 0.34,
-            kind: vfxKind,
-            angle,
-            element: sect.element,
-          });
-          emitSkillCastParticles(effectPools, {
-            skill,
-            element: sect.element,
-            originX,
-            originY,
-            targetX: pr.x + Math.cos(angle) * 34,
-            targetY: pr.y + Math.sin(angle) * 34,
-            angle,
-            isUltimate: skillIdx === 2 || skillIdx === 5,
-          });
+          // Only subtle weapon launch particles at caster — full skill burst explodes ON THE MONSTER when hit!
+          addParticles(
+            pr.x + Math.cos(angle) * 24,
+            pr.y + Math.sin(angle) * 24,
+            skill.accentColor || skill.color,
+            Math.max(4, Math.round(8 * crowdFactor)),
+            115
+          );
+          if (isUltimateCast) {
+            addFloatText(pr.x, pr.y - 46, skill.name, skill.accentColor || '#F5D061', 1.08);
+          }
           return;
         }
 
-        // Melee skills (blade arcs, twin strikes, spear charge/flurry, heavy hammer, staff sweeps, etc.)
+        // Melee skills — lunge into monster or launch fast blade-qi slash so impact ALWAYS hits the monster
         if (skill.type === 'melee') {
           soundEngine.playSlash();
-          const strikeX = pr.x + Math.cos(angle) * Math.min(44, skill.range * 0.35);
-          const strikeY = pr.y + Math.sin(angle) * Math.min(44, skill.range * 0.35);
+          const targetDist = target ? Math.hypot(target.x - pr.x, target.y - pr.y) : 0;
+          const meleeReach = Math.max(skill.radius + 28, 72);
+
+          // If target is slightly outside immediate blade reach, step/lunge forward into striking range
+          if (target && targetDist > meleeReach && targetDist <= Math.max(skill.range + 160, 290)) {
+            const lungeDist = Math.min(targetDist - Math.max(24, target.radius + 8), 165);
+            if (lungeDist > 12) {
+              const dest = clampArena(pr.x + Math.cos(angle) * lungeDist, pr.y + Math.sin(angle) * lungeDist);
+              pr.x = dest.x;
+              pr.y = dest.y;
+              pr.dashTimer = Math.max(pr.dashTimer, 0.16);
+            }
+          }
+
+          const postDist = target ? Math.hypot(target.x - pr.x, target.y - pr.y) : 0;
+          const strikeOnTarget = Boolean(target && postDist <= Math.max(skill.range + 130, 220));
+          const strikeX = strikeOnTarget && target ? target.x : pr.x + Math.cos(angle) * Math.min(92, Math.max(58, skill.range * 0.55));
+          const strikeY = strikeOnTarget && target ? target.y : pr.y + Math.sin(angle) * Math.min(92, Math.max(58, skill.range * 0.55));
+
           effectPools.spawnRing({
             x: strikeX,
             y: strikeY,
@@ -2258,6 +2702,30 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             sourceX: originX,
             sourceY: originY,
           });
+          if (Math.hypot(strikeX - pr.x, strikeY - pr.y) > 54) {
+            vfxSheetPool.spawnTravelingSkill(
+              sect.element,
+              vfxKind,
+              pr.x,
+              pr.y,
+              strikeX,
+              strikeY,
+              Math.max(66, skill.radius),
+              hitCount >= 2 ? 0.46 : 0.36,
+              p.sect
+            );
+          } else {
+            vfxSheetPool.spawnSkillBurst(
+              sect.element,
+              vfxKind,
+              strikeX,
+              strikeY,
+              Math.max(66, skill.radius),
+              angle,
+              hitCount >= 2 ? 0.46 : 0.36,
+              p.sect
+            );
+          }
           emitSkillCastParticles(effectPools, {
             skill,
             element: sect.element,
@@ -2266,46 +2734,65 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             targetX: strikeX,
             targetY: strikeY,
             angle,
-            isUltimate: skillIdx === 2 || skillIdx === 5,
+            isUltimate: isUltimateCast,
+            crowdFactor,
           });
 
-          const perHitDmg = baseDmg / (hitCount > 1 ? 1 + (hitCount - 1) * 0.55 : 1);
+          let hitUnits = 0;
           for (const e of validEnemies) {
-            const d = Math.hypot(e.x - pr.x, e.y - pr.y);
-            if (d <= skill.radius + e.radius + 26) {
+            if (hitUnits >= maxTargets) break;
+            const dFromStrike = Math.hypot(e.x - strikeX, e.y - strikeY);
+            const dFromPlayer = Math.hypot(e.x - pr.x, e.y - pr.y);
+            if (dFromStrike <= skill.radius + e.radius + 22 || dFromPlayer <= skill.radius + e.radius + 26) {
               for (let h = 0; h < hitCount; h++) {
-                damageUnit(e, perHitDmg, isCrit && h === hitCount - 1, sect.element, true);
+                damageUnit(e, perHitSpecDmg, isCrit && h === hitCount - 1, sect.element, true);
               }
-              applySkillSecondaryEffects(e, skill, pr.x, pr.y, pStats.atk);
+              applySkillSecondaryEffects(e, skill, strikeX, strikeY, pStats.atk, rankFactor);
+              hitUnits += 1;
             }
           }
           return;
         }
 
-        // AoE or Poison centered on target, destination, or self
-        const isSelfCentered =
+        // AoE or Poison — ALWAYS targets the monster (close-range whirls lunge to monster; ranged AoEs travel to monster & detonate ON IT!)
+        const isPureDefensiveSelf =
+          vfxKind === 'lotus_sanctuary_ult' || vfxKind === 'guard_shield_140';
+        const isMeleeWhirl =
           vfxKind === 'lion_roar' ||
           vfxKind === 'star_staff_spin' ||
           vfxKind === 'vortex_pull' ||
           vfxKind === 'knockback_ring' ||
-          vfxKind === 'spear_whirl_shield' ||
-          vfxKind === 'ground_shatter' ||
-          vfxKind === 'staff_array' ||
-          Boolean(skill.dashToTarget);
+          vfxKind === 'spear_whirl_shield';
 
-        const cx = isSelfCentered
+        const aoeTargetDist = target ? Math.hypot(target.x - pr.x, target.y - pr.y) : 0;
+        if (isMeleeWhirl && target && aoeTargetDist > skill.radius * 0.58 + target.radius && aoeTargetDist <= Math.max(skill.range + 190, 340)) {
+          const leapDist = Math.max(0, aoeTargetDist - Math.max(24, target.radius + 6));
+          const dest = clampArena(pr.x + Math.cos(angle) * leapDist, pr.y + Math.sin(angle) * leapDist);
+          pr.x = dest.x;
+          pr.y = dest.y;
+          pr.dashTimer = Math.max(pr.dashTimer, 0.2);
+        }
+
+        const lockTargetOnMonster =
+          !isPureDefensiveSelf &&
+          Boolean(target && Math.hypot(target.x - pr.x, target.y - pr.y) <= Math.max(skill.range + 220, 480));
+
+        const cx = isPureDefensiveSelf
           ? pr.x
-          : target && Math.hypot(target.x - pr.x, target.y - pr.y) <= skill.range + 50
+          : lockTargetOnMonster && target
           ? target.x
-          : pr.x + Math.cos(angle) * Math.min(115, skill.range * 0.62);
-        const cy = isSelfCentered
+          : isMeleeWhirl
+          ? pr.x
+          : pr.x + Math.cos(angle) * Math.min(185, Math.max(110, skill.range * 0.72));
+        const cy = isPureDefensiveSelf
           ? pr.y
-          : target && Math.hypot(target.x - pr.x, target.y - pr.y) <= skill.range + 50
+          : lockTargetOnMonster && target
           ? target.y
-          : pr.y + Math.sin(angle) * Math.min(115, skill.range * 0.62);
+          : isMeleeWhirl
+          ? pr.y
+          : pr.y + Math.sin(angle) * Math.min(185, Math.max(110, skill.range * 0.72));
 
-        const isSignatureUlt = skillIdx === 2 || skillIdx === 5;
-        const aoeLife = isSignatureUlt ? 0.85 : 0.66;
+        const aoeLife = skill.isUltimate180 ? 1.05 : skill.isUltimate150 ? 0.88 : isUltimateCast ? 0.82 : 0.66;
         effectPools.spawnRing({
           x: cx,
           y: cy,
@@ -2321,6 +2808,21 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           sourceX: pr.x,
           sourceY: pr.y,
         });
+        if (!isPureDefensiveSelf && Math.hypot(cx - pr.x, cy - pr.y) > 48) {
+          vfxSheetPool.spawnTravelingSkill(
+            sect.element,
+            vfxKind,
+            pr.x,
+            pr.y,
+            cx,
+            cy,
+            skill.radius,
+            aoeLife * 0.92,
+            p.sect
+          );
+        } else {
+          vfxSheetPool.spawnSkillBurst(sect.element, vfxKind, cx, cy, skill.radius, angle, aoeLife * 0.9, p.sect);
+        }
         emitSkillCastParticles(effectPools, {
           skill,
           element: sect.element,
@@ -2329,34 +2831,44 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           targetX: cx,
           targetY: cy,
           angle,
-          isUltimate: isSignatureUlt,
+          isUltimate: isUltimateCast,
+          crowdFactor,
         });
-        if (isSignatureUlt) {
-          shakeIntensity = Math.max(shakeIntensity, 8.2);
-          addFloatText(pr.x, pr.y - 46, skill.name, skill.accentColor || '#F5D061', 1.12);
+        // Spec readability: no white screen flash and no continuous camera shake on Lv.150/180 ultimates
+        if (isUltimateCast) {
+          shakeIntensity = Math.max(shakeIntensity, 3.8);
+          addFloatText(pr.x, pr.y - 46, skill.name, skill.accentColor || '#F5D061', 1.1);
         }
 
-        const perHitDmg = baseDmg / (hitCount > 1 ? 1 + (hitCount - 1) * 0.58 : 1);
         let totalDrained = 0;
+        let hitUnits = 0;
+        const isPvpBattle = propsRef.current.battle.mode === 'ARENA';
 
         for (const e of validEnemies) {
+          if (hitUnits >= maxTargets) break;
           if (Math.hypot(e.x - cx, e.y - cy) <= skill.radius + e.radius) {
             for (let h = 0; h < hitCount; h++) {
-              damageUnit(e, perHitDmg, isCrit && h === hitCount - 1, sect.element, true);
+              damageUnit(e, perHitSpecDmg, isCrit && h === hitCount - 1, sect.element, true);
             }
-            applySkillSecondaryEffects(e, skill, cx, cy, pStats.atk);
+            applySkillSecondaryEffects(e, skill, cx, cy, pStats.atk, rankFactor);
             if (skill.drainRatio && skill.drainRatio > 0) {
-              totalDrained += Math.round(baseDmg * skill.drainRatio);
+              const rawDrain = Math.round(baseDmg * skill.drainRatio);
+              // Spec PvP lifesteal cap: max 2% max HP per hit against player opponents
+              const isPlayerTarget = isPvpBattle || e.kind === 'wanderer';
+              totalDrained += isPlayerTarget
+                ? Math.min(Math.round(pStats.maxHp * 0.02 * hitCount), rawDrain)
+                : rawDrain;
             }
+            hitUnits += 1;
           }
         }
 
         if (totalDrained > 0) {
-          const hpGain = Math.min(pStats.maxHp - pr.hp, Math.max(35, totalDrained));
-          const mpGain = Math.min(pStats.maxMp - pr.mp, Math.max(20, Math.round(totalDrained * 0.45)));
+          const hpGain = Math.min(pStats.maxHp - pr.hp, Math.max(25, totalDrained));
+          const mpGain = Math.min(pStats.maxMp - pr.mp, Math.max(15, Math.round(totalDrained * 0.4)));
           pr.hp = Math.min(pStats.maxHp, pr.hp + hpGain);
           pr.mp = Math.min(pStats.maxMp, pr.mp + mpGain);
-          addFloatText(pr.x, pr.y - 36, `Hấp Thu +${Math.round(hpGain)} HP`, '#5EEAD4', 1.02);
+          addFloatText(pr.x, pr.y - 36, `Hấp Thu +${Math.round(hpGain)} HP`, '#5EEAD4', 1.0);
         }
       };
 
@@ -2739,8 +3251,13 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           pendingActionsRef.current.castIndex = null;
           performSkill(idx);
         }
+        if (pendingActionsRef.current.previewSkillId) {
+          const sid = pendingActionsRef.current.previewSkillId;
+          pendingActionsRef.current.previewSkillId = null;
+          triggerSkillVisualPreview(sid);
+        }
 
-        // Player Movement: Keyboard overrides click/auto
+        // Player Movement: Keyboard overrides click/auto (spec moveSpeed cap 80%)
         let moveX = 0;
         let moveY = 0;
         if (heldKeys.has('w') || heldKeys.has('arrowup')) moveY -= 1;
@@ -2749,7 +3266,8 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         if (heldKeys.has('d') || heldKeys.has('arrowright')) moveX += 1;
 
         const speedBuffBonus = pr.buffTimer > 0 ? pr.buffSpeedPct : 0;
-        const playerSpeed = Math.round(165 * (1 + (pStats.moveSpeedPct + speedBuffBonus) / 100));
+        const clampedSpeedBonus = Math.min(80, pStats.moveSpeedPct + speedBuffBonus);
+        const playerSpeed = Math.round(165 * (1 + clampedSpeedBonus / 100));
         if (moveX !== 0 || moveY !== 0) {
           const len = Math.hypot(moveX, moveY);
           pr.facing = Math.atan2(moveY, moveX);
@@ -2789,7 +3307,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               pr.targetUnitId = target.id;
             }
             const dist = Math.hypot(target.x - pr.x, target.y - pr.y);
-            const orderedSkills = getOrderedSectSkills(p.sect, p.branchIndex ?? 0);
+            const orderedSkills = getPlayerHotbarSkills(p);
             const preferredRange = (orderedSkills[0]?.range ?? sect.skills[0].range) * 0.78;
             if (dist > preferredRange + target.radius) {
               const a = Math.atan2(target.y - pr.y, target.x - pr.x);
@@ -2798,8 +3316,8 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               pr.x = next.x;
               pr.y = next.y;
             } else {
-              // Cast highest priority available skill — prioritize chosen primary branch (slots 1–3) then Song Tu (4–6)
-              const castOrder = [2, 1, 5, 4, 0, 3];
+              // Cast highest priority available skill on hotbar (slots 6 -> 1)
+              const castOrder = [5, 4, 3, 2, 1, 0];
               for (const idx of castOrder) {
                 const sk = orderedSkills[idx];
                 if (!sk) continue;
@@ -2899,6 +3417,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               const pdmg = Math.max(10, Math.round(u.poisonDps * 0.5));
               u.hp = Math.max(0, u.hp - pdmg);
               addFloatText(u.x, u.y - u.radius, `Độc -${pdmg}`, '#4ADE80', 0.85);
+              vfxSheetPool.spawnHitImpactBurst('status_element', u.x, u.y - 6, 46, 0, 'moc');
             }
           }
 
@@ -2909,6 +3428,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               u.hp = Math.max(0, u.hp - bdmg);
               addFloatText(u.x, u.y - u.radius - 4, `Cháy -${bdmg}`, '#FB923C', 0.85);
               addParticles(u.x, u.y, '#F97316', 3, 55);
+              vfxSheetPool.spawnHitImpactBurst('status_element', u.x, u.y - 6, 46, 0, 'hoa');
             }
           }
 
@@ -2920,6 +3440,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               addFloatText(u.x, u.y - u.radius - 6, `Hóa Cốt -${mdmg}`, '#C084FC', 0.88);
               addParticles(u.x, u.y + 8, '#4ADE80', 4, 38);
               addParticles(u.x, u.y + 6, '#9333EA', 2, 26);
+              vfxSheetPool.spawnHitImpactBurst('status_element', u.x, u.y - 6, 48, 0, 'moc');
             }
           }
 
@@ -3203,7 +3724,19 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
               if (!isUnitHostileToPlayer(u) || proj.hitIds.has(u.id)) continue;
               if (Math.hypot(u.x - proj.x, u.y - proj.y) <= u.radius + proj.radius) {
                 proj.hitIds.add(u.id);
+                const hitAng = Math.atan2(proj.vy, proj.vx);
                 damageUnit(u, proj.damage, proj.crit, proj.element, true);
+                vfxSheetPool.spawnSkillBurst(
+                  proj.element,
+                  proj.vfxKind || 'ring',
+                  u.x,
+                  u.y - 6,
+                  Math.max(58, proj.radius * 4.4),
+                  hitAng,
+                  0.42,
+                  p.sect
+                );
+                vfxSheetPool.spawnCollisionBurst('shockwave', u.x, u.y - 2, 78, hitAng, proj.element);
                 emitProjectileImpactParticles(effectPools, proj, u.x, u.y, pr.x, pr.y);
                 if (proj.slow) u.slowTimer = Math.max(u.slowTimer, 2.4);
                 if (proj.stunSec > 0) u.stunTimer = Math.max(u.stunTimer, proj.stunSec);
@@ -3225,11 +3758,13 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
                     const push = u.kind === 'boss' ? proj.pushStrength * 0.3 : proj.pushStrength;
                     u.knockbackX = Math.cos(pa) * push;
                     u.knockbackY = Math.sin(pa) * push;
+                    vfxSheetPool.spawnCollisionBurst('ground_push', u.x, u.y + 4, 74, pa, proj.element);
                   } else if (proj.pullStrength > 0) {
                     const pa = Math.atan2(pr.y - u.y, pr.x - u.x);
                     const pull = u.kind === 'boss' ? proj.pullStrength * 0.3 : proj.pullStrength;
                     u.knockbackX = Math.cos(pa) * pull;
                     u.knockbackY = Math.sin(pa) * pull;
+                    vfxSheetPool.spawnCollisionBurst('ground_push', u.x, u.y + 4, 74, pa, proj.element);
                   }
                 }
                 if (proj.drainRatio > 0) {
@@ -3246,6 +3781,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             if (hit) projPool.releaseAt(i);
           } else {
             if (Math.hypot(pr.x - proj.x, pr.y - proj.y) <= 22 + proj.radius) {
+              vfxSheetPool.spawnCollisionBurst('shockwave', pr.x, pr.y - 2, 70, Math.atan2(proj.vy, proj.vx), proj.element);
               damagePlayer(proj.damage, proj.element, false, 'Cao Thủ Giang Hồ', true, proj.crit);
               projPool.releaseAt(i);
             }
@@ -3433,6 +3969,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           if (r.life <= 0) ringPool.releaseAt(i);
         }
         updatePooledParticles(effectPools, dt);
+        vfxSheetPool.update(dt);
         const textPool = effectPools.floatTexts;
         for (let i = textPool.activeCount - 1; i >= 0; i--) {
           const ft = textPool.items[i];
@@ -3736,6 +4273,7 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
             r.sourceY
           );
         }
+        vfxSheetPool.renderLayer(ctx, 'ground');
 
         // 4. Rarity Ground Loot Drops with Pixel Icons & Light Beams (#10, #12, #14)
         for (const lb of lootOrbs) {
@@ -3955,6 +4493,14 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
                 buffLabel: pr.buffTimer > 0 ? pr.buffLabel : '',
                 buffColor: pr.buffColor || sect.color,
                 buffAccent: pr.buffAccent || ELEMENT_VFX_PALETTE[sect.element].bright,
+                mantleLabel: mantle.id === 0 ? 'Sơ Nhập' : mantle.name,
+                guildRole: propsRef.current.guild
+                  ? propsRef.current.guild.leader === p.name
+                    ? 'Bang chủ'
+                    : 'Thành viên'
+                  : undefined,
+                playerLevel: p.level,
+                sectName: sect.name,
               }
             );
             if (levelUpFxRef.current.active) {
@@ -3980,12 +4526,48 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
         }
         flushPropsUpToY(Infinity);
 
-        // 6. Directional Five-Element Martial Projectiles (High-Contrast Daytime Readable)
+        // 6. Directional Five-Element Martial Projectiles (Painted Sprite Sheet + High-Contrast Wake)
         const projItems = effectPools.projectiles.items;
         for (let i = 0; i < effectPools.projectiles.activeCount; i++) {
           const proj = projItems[i];
           const pAng = Math.atan2(proj.vy, proj.vx);
           const r = proj.radius;
+
+          // First attempt painted directional projectile from `projectiles` 4x4 sprite sheet
+          const pCell = resolveProjectileCell(proj.element, proj.vfxKind || 'ring');
+          const boltDrawSize = Math.max(46, Math.min(96, r * 4.4));
+          const spriteAng = pCell.spin ? atlasHub.globalPhase * 12 + i : pAng;
+          const drewPaintedBolt = drawVfxSheetFrame(
+            ctx,
+            'projectiles',
+            pCell.row,
+            pCell.col,
+            proj.x,
+            proj.y,
+            boltDrawSize,
+            spriteAng,
+            0.98,
+            false,
+            1
+          );
+          if (drewPaintedBolt) {
+            // Subtle luminous trail ghost behind painted flying skill bolt
+            drawVfxSheetFrame(
+              ctx,
+              'projectiles',
+              pCell.row,
+              pCell.col,
+              proj.x - Math.cos(pAng) * (boltDrawSize * 0.28),
+              proj.y - Math.sin(pAng) * (boltDrawSize * 0.28),
+              boltDrawSize * 0.78,
+              spriteAng,
+              0.38,
+              true,
+              1
+            );
+            continue;
+          }
+
           ctx.save();
           ctx.translate(proj.x, proj.y);
           ctx.rotate(pAng);
@@ -4318,7 +4900,8 @@ export const BattleCanvas = React.forwardRef<BattleCanvasHandle, BattleCanvasPro
           ctx.restore();
         }
 
-        // 7. Upgraded 72-Skill Ngũ Hành Particle Engine (Blade Arcs, Support Halos, Pull/Push Chevrons, Sparks, Petals, Lightning)
+        // 7. Painted VFX Sprite Sheets (Impact / Clash / Slash / Crit) + Particle Engine
+        vfxSheetPool.renderLayer(ctx, 'impact');
         renderPooledParticles(ctx, effectPools);
 
         // 8. Floating Combat Numbers (World Space — compact Kiếm Thế 2009 scale)
@@ -4613,6 +5196,10 @@ function drawPlayerEntity(
     buffLabel: string;
     buffColor?: string;
     buffAccent?: string;
+    mantleLabel?: string;
+    guildRole?: string;
+    playerLevel?: number;
+    sectName?: string;
   }
 ) {
   ctx.save();
@@ -4858,41 +5445,84 @@ function drawPlayerEntity(
   ctx.fillStyle = '#22C55E';
   ctx.fillRect(x - barW / 2, barY, barW * Math.max(0, hp / Math.max(1, maxHp)), 3.5);
 
-  // 9. Compact Name + Guild + Title + PK Label
-  ctx.textAlign = 'center';
-  ctx.font = '700 10px "Be Vietnam Pro", sans-serif';
-  ctx.lineWidth = 2.6;
-  ctx.strokeStyle = 'rgba(8,6,5,0.92)';
-  const baseLabel = guildName ? `[${guildName}] ${name}` : name;
-  const label = pkPoints > 0 ? `${baseLabel} [PK ${pkPoints}]` : baseLabel;
-  ctx.strokeText(label, x, barY - 4);
-  ctx.fillStyle = pkPoints > 0 || pkMode === 'slaughter' ? '#F87171' : '#FEF3C7';
-  ctx.fillText(label, x, barY - 4);
+  // 9. Authentic Kiếm Thế 2009 3-Line Overhead Nameplate Stack:
+  //    Bottom (above HP): <Phi Phong> TênNhânVật [ MônPhái.Cấp ]
+  //    Middle (above Name): [Bang hội]TênBang.ChứcVụ (or [Môn phái]TênPhái.Đệ tử)
+  //    Top (above Guild): Danh hiệu
+  ctx.lineWidth = 2.8;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(6, 5, 5, 0.94)';
 
-  let extraLineY = barY - 15;
-  if (titleName) {
-    ctx.font = '600 9px "Be Vietnam Pro", sans-serif';
-    ctx.strokeText(`« ${titleName} »`, x, extraLineY);
-    ctx.fillStyle = titleColor || sectColor || '#F5D061';
-    ctx.fillText(`« ${titleName} »`, x, extraLineY);
-    extraLineY -= 11;
+  const mantleTagText = `<${combatStatus?.mantleLabel || 'Sơ Nhập'}>`;
+  const sectMeta = combatStatus?.sectName
+    ? ` [ ${combatStatus.sectName}.${combatStatus.playerLevel ?? 1} ]`
+    : '';
+  const pkSuffix = pkPoints > 0 ? ` [PK ${pkPoints}]` : '';
+  const namePartText = ` ${name}${sectMeta}${pkSuffix}`;
+
+  // Line 1 (Bottom): <Phi Phong> right BEFORE Character Name (centered as one baseline)
+  ctx.font = '700 10px "Be Vietnam Pro", sans-serif';
+  const mantleW = ctx.measureText(mantleTagText).width;
+  const nameW = ctx.measureText(namePartText).width;
+  const startX = x - (mantleW + nameW) / 2;
+  const line1Y = barY - 4;
+
+  ctx.textAlign = 'left';
+  ctx.strokeText(mantleTagText, startX, line1Y);
+  ctx.fillStyle = mantleId > 0 ? mantleColor : '#93C5FD';
+  ctx.fillText(mantleTagText, startX, line1Y);
+
+  ctx.strokeText(namePartText, startX + mantleW, line1Y);
+  ctx.fillStyle = pkPoints > 0 || pkMode === 'slaughter' ? '#F87171' : '#C8FFE0';
+  ctx.fillText(namePartText, startX + mantleW, line1Y);
+
+  // Line 2 (Middle): Bang hội & Chức vụ directly above Name
+  ctx.textAlign = 'center';
+  const line2Y = line1Y - 12;
+  const guildLine = guildName
+    ? `[Bang hội]${guildName}.${combatStatus?.guildRole || 'Thành viên'}`
+    : combatStatus?.sectName
+    ? `[Môn phái]${combatStatus.sectName}.Đệ tử`
+    : '';
+  let nextLineY = line2Y;
+  if (guildLine) {
+    ctx.font = '600 9.5px "Be Vietnam Pro", sans-serif';
+    ctx.strokeText(guildLine, x, line2Y);
+    ctx.fillStyle = '#E4F7EE';
+    ctx.fillText(guildLine, x, line2Y);
+    nextLineY = line2Y - 13;
   }
+
+  // Line 3 (Top): Danh hiệu above Bang hội & Chức vụ
+  if (titleName) {
+    ctx.save();
+    ctx.font = '700 10.5px "Be Vietnam Pro", sans-serif';
+    ctx.shadowColor = titleColor || '#F97316';
+    ctx.shadowBlur = 6;
+    ctx.strokeText(titleName, x, nextLineY);
+    ctx.fillStyle = titleColor || '#FB923C';
+    ctx.fillText(titleName, x, nextLineY);
+    ctx.restore();
+    nextLineY -= 12;
+  }
+
+  // Active PK / Sát Khí warning stacked cleanly above Title
   if (pkMode === 'slaughter') {
     const blink = 0.72 + 0.28 * Math.sin(animPhase * 2.2);
     ctx.save();
     ctx.globalAlpha = blink;
     ctx.font = '700 8.5px "Be Vietnam Pro", sans-serif';
-    ctx.strokeText('⚔ ĐỒ SÁT (PK)', x, extraLineY);
+    ctx.strokeText('⚔ ĐỒ SÁT (PK)', x, nextLineY);
     ctx.fillStyle = '#EF4444';
-    ctx.fillText('⚔ ĐỒ SÁT (PK)', x, extraLineY);
+    ctx.fillText('⚔ ĐỒ SÁT (PK)', x, nextLineY);
     ctx.restore();
-    extraLineY -= 10;
+    nextLineY -= 10;
   }
   if (pkPenaltyPct > 0) {
     ctx.font = '700 8.5px "Be Vietnam Pro", sans-serif';
-    ctx.strokeText(`Sát Khí -${pkPenaltyPct}%`, x, extraLineY);
+    ctx.strokeText(`Sát Khí -${pkPenaltyPct}%`, x, nextLineY);
     ctx.fillStyle = '#FCA5A5';
-    ctx.fillText(`Sát Khí -${pkPenaltyPct}%`, x, extraLineY);
+    ctx.fillText(`Sát Khí -${pkPenaltyPct}%`, x, nextLineY);
   }
   ctx.restore();
 }
@@ -5050,37 +5680,80 @@ function drawNpcOrEnemy(
       : '#DC2626';
   ctx.fillRect(u.x - barW / 2, barY, barW * Math.max(0, u.hp / Math.max(1, u.maxHp)), 3.5);
 
-  // Compact Name & Title
-  ctx.textAlign = 'center';
-  ctx.font = u.kind === 'boss' ? '700 11px "Be Vietnam Pro", sans-serif' : '600 9.5px "Be Vietnam Pro", sans-serif';
+  // Authentic Kiếm Thế 2009 3-Line Overhead Stack for Martial Artists (Wanderer / Rival)
   ctx.lineWidth = 2.6;
-  ctx.strokeStyle = 'rgba(8, 6, 5, 0.92)';
-  const displayName =
-    u.kind === 'wanderer'
-      ? `${isHostileWanderer ? '[PK] ' : ''}${u.name}`
-      : u.kind === 'boss' && u.enraged
-      ? `🔥 ${u.name}`
-      : u.name;
-  ctx.strokeText(displayName, u.x, barY - 3.5);
-  ctx.fillStyle =
-    u.team === 'ally'
-      ? '#93C5FD'
-      : u.kind === 'wanderer'
-      ? isHostileWanderer
-        ? '#FCA5A5'
-        : '#A7F3D0'
-      : u.kind === 'boss'
-      ? u.enraged
-        ? '#FCA5A5'
-        : '#F5D061'
-      : '#F3EAD8';
-  ctx.fillText(displayName, u.x, barY - 3.5);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(8, 6, 5, 0.94)';
 
-  if (u.title) {
-    ctx.font = '600 8.5px "Be Vietnam Pro", sans-serif';
-    ctx.strokeText(u.title, u.x, barY - 14);
-    ctx.fillStyle = u.kind === 'wanderer' ? '#C7B89E' : '#FDE68A';
-    ctx.fillText(u.title, u.x, barY - 14);
+  if ((u.kind === 'wanderer' || u.kind === 'rival') && u.masterSect) {
+    const uMantle = MANTLES.find((m) => m.id === (u.mantleId || 0)) || MANTLES[0];
+    const uSect = SECTS[u.masterSect];
+    const mantleTag = `<${uMantle.id === 0 ? 'Sơ Nhập' : uMantle.name}>`;
+    const lvTag = u.masterLevel ? ` [ ${uSect.name}.${u.masterLevel} ]` : ` [ ${uSect.name} ]`;
+    const namePart = ` ${isHostileWanderer ? '[PK] ' : ''}${u.name}${lvTag}`;
+
+    // Bottom line: <Phi Phong> Name [ Sect.Lv ]
+    ctx.font = '700 9.5px "Be Vietnam Pro", sans-serif';
+    const mw = ctx.measureText(mantleTag).width;
+    const nw = ctx.measureText(namePart).width;
+    const sx = u.x - (mw + nw) / 2;
+    const y1 = barY - 4;
+
+    ctx.textAlign = 'left';
+    ctx.strokeText(mantleTag, sx, y1);
+    ctx.fillStyle = uMantle.id > 0 ? uMantle.color : '#93C5FD';
+    ctx.fillText(mantleTag, sx, y1);
+
+    ctx.strokeText(namePart, sx + mw, y1);
+    ctx.fillStyle =
+      u.kind === 'rival' || isHostileWanderer ? '#FCA5A5' : '#C8FFE0';
+    ctx.fillText(namePart, sx + mw, y1);
+
+    // Middle line: [Bang hội]Guild.Role
+    ctx.textAlign = 'center';
+    let nextY = y1 - 11.5;
+    if (u.guildTag) {
+      const guildText = `[Bang hội]${u.guildTag}.${u.guildRole || 'Thành viên'}`;
+      ctx.font = '600 9px "Be Vietnam Pro", sans-serif';
+      ctx.strokeText(guildText, u.x, nextY);
+      ctx.fillStyle = '#E4F7EE';
+      ctx.fillText(guildText, u.x, nextY);
+      nextY -= 12;
+    }
+
+    // Top line: Danh hiệu
+    if (u.title) {
+      ctx.save();
+      ctx.font = '700 10px "Be Vietnam Pro", sans-serif';
+      ctx.shadowColor = u.color || '#FB923C';
+      ctx.shadowBlur = 5;
+      ctx.strokeText(u.title, u.x, nextY);
+      ctx.fillStyle = u.kind === 'rival' ? '#FB923C' : '#FBBF24';
+      ctx.fillText(u.title, u.x, nextY);
+      ctx.restore();
+    }
+  } else {
+    // Monsters, Elites, Bosses & Siege Structures
+    ctx.textAlign = 'center';
+    ctx.font = u.kind === 'boss' ? '700 11px "Be Vietnam Pro", sans-serif' : '600 9.5px "Be Vietnam Pro", sans-serif';
+    const displayName = u.kind === 'boss' && u.enraged ? `🔥 ${u.name}` : u.name;
+    ctx.strokeText(displayName, u.x, barY - 3.5);
+    ctx.fillStyle =
+      u.team === 'ally'
+        ? '#93C5FD'
+        : u.kind === 'boss'
+        ? u.enraged
+          ? '#FCA5A5'
+          : '#F5D061'
+        : '#F3EAD8';
+    ctx.fillText(displayName, u.x, barY - 3.5);
+
+    if (u.title) {
+      ctx.font = '600 8.5px "Be Vietnam Pro", sans-serif';
+      ctx.strokeText(u.title, u.x, barY - 14);
+      ctx.fillStyle = '#FDE68A';
+      ctx.fillText(u.title, u.x, barY - 14);
+    }
   }
   ctx.restore();
 }

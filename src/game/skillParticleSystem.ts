@@ -56,6 +56,7 @@ export interface SkillCastParticleParams {
   targetY: number;
   angle: number;
   isUltimate?: boolean;
+  crowdFactor?: number; // 1.0 normal, 0.35 when crowded per spec
 }
 
 // ---------------------------------------------------------------------------
@@ -527,13 +528,14 @@ export function emitSkillCastParticles(
   pools: CombatEffectPools<any>,
   params: SkillCastParticleParams
 ) {
-  const { skill, element, originX, originY, targetX, targetY, angle, isUltimate } = params;
+  const { skill, element, originX, originY, targetX, targetY, angle, isUltimate, crowdFactor = 1 } = params;
   const pal = ELEMENT_VFX_PALETTE[element];
   const color = skill.color || pal.primary;
   const accent = skill.accentColor || pal.bright;
   const kind = skill.vfxKind || 'ring';
   const rad = Math.max(54, skill.radius || 75);
-  const mult = isUltimate ? 1.35 : 1;
+  const specCapFactor = skill.maxParticles ? Math.max(0.55, Math.min(1.5, skill.maxParticles / 60)) : 1;
+  const mult = Math.max(0.35, (isUltimate || skill.isUltimate150 || skill.isUltimate180 ? 1.35 : 1) * specCapFactor * crowdFactor);
 
   // A. Dash / Blink origin & destination afterimage smoke & wind ribbons
   if (skill.dashToTarget) {
@@ -585,7 +587,9 @@ export function emitSkillCastParticles(
     kind === 'gear_aura' ||
     kind === 'compact_buff' ||
     kind === 'evasion_ring' ||
-    kind === 'spear_whirl_shield'
+    kind === 'spear_whirl_shield' ||
+    kind === 'guard_shield_140' ||
+    kind === 'lotus_sanctuary_ult'
   ) {
     emitSupportAuraBurst(pools, originX, originY, rad, color, accent, element, kind);
   }
@@ -970,8 +974,146 @@ export function emitSkillCastParticles(
       break;
     }
 
+    case 'buddha_palm_ult':
+    case 'staff_mandala_ult':
+    case 'cavalry_spear_ult':
+    case 'six_meridian_ult':
+    case 'taiji_sword_array_ult':
+    case 'glacier_swords_ult': {
+      emitBladeQiArc(pools, targetX, targetY, angle, rad, color, accent, element, Math.max(4, Math.round(7 * mult)), 1.9, 1.3);
+      const count = Math.max(6, Math.round(18 * mult));
+      for (let i = 0; i < count; i++) {
+        const a = (i * Math.PI * 2) / count;
+        const rOrbit = rad * (0.42 + (i % 3) * 0.24);
+        pools.spawnStyledParticle({
+          x: targetX + Math.cos(a) * rOrbit,
+          y: targetY + Math.sin(a) * rOrbit * 0.54,
+          size: 3.4 + (i % 2) * 1.4,
+          length: 22,
+          color: i % 2 === 0 ? color : accent,
+          accentColor: '#FFFFFF',
+          element,
+          life: 0.56 + Math.random() * 0.24,
+          kind: i % 3 === 0 ? 'star' : i % 3 === 1 ? 'rune' : 'shard',
+          scaleY: 0.54,
+          isOrbital: true,
+          orbitX: targetX,
+          orbitY: targetY,
+          orbitRadius: rOrbit,
+          orbitAngle: a,
+          orbitSpeed: (i % 2 === 0 ? 1 : -1) * 4.4,
+          radialSpeed: 22,
+          blendMode: 'lighter',
+        });
+      }
+      break;
+    }
+
+    case 'dragon_storm_ult':
+    case 'hellfire_lotus_ult':
+    case 'blood_dragon_ult':
+    case 'sacred_fire_hex_ult': {
+      const count = Math.max(6, Math.round(24 * mult));
+      for (let i = 0; i < count; i++) {
+        const a = (i * Math.PI * 2) / count + Math.random() * 0.25;
+        const r = rad * (0.25 + Math.random() * 0.72);
+        pools.spawnStyledParticle({
+          x: targetX + Math.cos(a) * r,
+          y: targetY + Math.sin(a) * r * 0.54,
+          vx: Math.cos(a) * 55,
+          vy: -85 - Math.random() * 115,
+          size: 3.6 + Math.random() * 2.8,
+          length: 20,
+          color: i % 3 === 0 ? accent : color,
+          accentColor: '#FFFFFF',
+          element,
+          life: 0.52 + Math.random() * 0.34,
+          kind: i % 3 === 0 ? 'ribbon' : 'ember',
+          gravity: -30,
+          drag: 0.95,
+          blendMode: 'lighter',
+        });
+      }
+      break;
+    }
+
+    case 'nine_palace_trap_ult':
+    case 'spider_venom_ult': {
+      const count = Math.max(6, Math.round(20 * mult));
+      for (let i = 0; i < count; i++) {
+        const a = (i * Math.PI * 2) / count;
+        const r = rad * (0.28 + (i % 3) * 0.26);
+        pools.spawnStyledParticle({
+          x: targetX + Math.cos(a) * r,
+          y: targetY + Math.sin(a) * r * 0.54,
+          vx: Math.cos(a) * 65,
+          vy: -40 - Math.random() * 50,
+          size: i % 3 === 0 ? 7.5 : 3.5,
+          color: i % 2 === 0 ? color : accent,
+          accentColor: '#FFFFFF',
+          element,
+          life: 0.54 + Math.random() * 0.26,
+          kind: i % 3 === 0 ? 'smoke' : i % 2 === 0 ? 'rune' : 'drop',
+          gravity: i % 3 === 0 ? -12 : 120,
+          drag: 0.93,
+          blendMode: i % 3 === 0 ? 'normal' : 'lighter',
+        });
+      }
+      break;
+    }
+
+    case 'thunder_array_ult':
+    case 'wind_thunder_vortex_ult': {
+      const count = Math.max(6, Math.round(22 * mult));
+      for (let i = 0; i < count; i++) {
+        const a = (i * Math.PI * 2) / count;
+        const r = rad * (0.22 + Math.random() * 0.76);
+        pools.spawnStyledParticle({
+          x: targetX + Math.cos(a) * r,
+          y: targetY + Math.sin(a) * r * 0.54 - (i % 3 === 0 ? 36 : 0),
+          vx: Math.cos(a) * 105,
+          vy: Math.sin(a) * 65 - 24,
+          size: 2.5 + Math.random() * 1.6,
+          length: 24 + Math.random() * 16,
+          color: i % 2 === 0 ? color : accent,
+          accentColor: '#FFFFFF',
+          element,
+          life: 0.28 + Math.random() * 0.2,
+          kind: i % 2 === 0 ? 'lightning' : 'ribbon',
+          rotation: a,
+          drag: 0.92,
+          blendMode: 'lighter',
+        });
+      }
+      break;
+    }
+
+    case 'cleanse_dash':
+    case 'guard_shield_140':
+    case 'lotus_sanctuary_ult': {
+      const count = Math.max(5, Math.round(14 * mult));
+      for (let i = 0; i < count; i++) {
+        const a = (i * Math.PI * 2) / count;
+        pools.spawnStyledParticle({
+          x: targetX + Math.cos(a) * (rad * 0.4),
+          y: targetY + Math.sin(a) * (rad * 0.24),
+          vx: Math.cos(a) * 85,
+          vy: -48 - Math.random() * 44,
+          size: 4.5 + Math.random() * 2.5,
+          color: i % 2 === 0 ? color : accent,
+          accentColor: '#FFFFFF',
+          element,
+          life: 0.46 + Math.random() * 0.22,
+          kind: kind === 'lotus_sanctuary_ult' ? 'petal' : i % 2 === 0 ? 'rune' : 'star',
+          drag: 0.95,
+          blendMode: 'lighter',
+        });
+      }
+      break;
+    }
+
     default: {
-      emitBladeQiArc(pools, targetX, targetY, angle, rad * 0.85, color, accent, element, Math.round(4 * mult), 1.6, 0.95);
+      emitBladeQiArc(pools, targetX, targetY, angle, rad * 0.85, color, accent, element, Math.max(3, Math.round(4 * mult)), 1.6, 0.95);
       break;
     }
   }

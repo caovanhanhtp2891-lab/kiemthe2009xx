@@ -125,7 +125,7 @@ export const ANIM_CLIPS: Record<AnimState, AnimClipDef> = {
   run: { frames: 6, fps: 13, loop: true, priority: 3 },
   enrage: { frames: 4, fps: 10, loop: false, priority: 4 },
   attack: { frames: 5, fps: 15, loop: false, priority: 5 },
-  cast: { frames: 4, fps: 10, loop: false, priority: 6 },
+  cast: { frames: 6, fps: 14, loop: false, priority: 6 },
   roar: { frames: 4, fps: 9, loop: false, priority: 6 },
   hit: { frames: 3, fps: 14, loop: false, priority: 7 },
   death: { frames: 4, fps: 7, loop: false, priority: 10 },

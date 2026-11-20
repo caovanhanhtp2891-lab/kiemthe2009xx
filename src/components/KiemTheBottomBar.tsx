@@ -1,7 +1,7 @@
 import React from 'react';
 import { Skull, Sparkles } from 'lucide-react';
 import { CHEST_TIER_META, CHEST_TIER_ORDER } from '../game/data';
-import { formatNumber, getOrderedSectSkills } from '../game/engine';
+import { formatNumber, getPlayerHotbarSkills } from '../game/engine';
 import {
   ActiveModal,
   BattleMode,
@@ -515,15 +515,18 @@ export const KiemTheBottomBar: React.FC<KiemTheBottomBarProps> = ({
     CHEST_TIER_ORDER.find((t) => (player.treasureChests[t] || 0) > 0) || 'imperial_gold';
   const bestChestMeta = CHEST_TIER_META[bestChestTier];
 
-  // Highest unlocked active skill for Right-Click slot
+  const hotbarSkills = getPlayerHotbarSkills(player);
+  const leftSkill = hotbarSkills[0] || sect.skills[0];
+
+  // Highest unlocked active skill on hotbar for Right-Click slot
   let rightClickSkillIdx = 0;
-  for (let i = sect.skills.length - 1; i >= 1; i--) {
-    if ((player.skillLevels[sect.skills[i].id] || 0) > 0) {
+  for (let i = hotbarSkills.length - 1; i >= 1; i--) {
+    if ((player.skillLevels[hotbarSkills[i].id] || 0) > 0) {
       rightClickSkillIdx = i;
       break;
     }
   }
-  const rightSkill = sect.skills[rightClickSkillIdx];
+  const rightSkill = hotbarSkills[rightClickSkillIdx] || leftSkill;
 
   const rightMenuButtons: {
     key: string;
@@ -811,9 +814,10 @@ export const KiemTheBottomBar: React.FC<KiemTheBottomBarProps> = ({
               <span className="kt2009-count">{player.potions > 0 ? player.potions : '+5'}</span>
             </button>
 
-            {/* Slots 3–8: All 6 Illustrated Dual-Branch Sect Martial Arts Skills (Chosen Branch on Keys 1–3) */}
-            {getOrderedSectSkills(player.sect, player.branchIndex ?? 0).map((sk, idx) => {
+            {/* Slots 3–8: 6 Equipped Active-Branch Skills (Lv.10–180, customizable in F3 Kỹ Năng) */}
+            {hotbarSkills.map((sk, idx) => {
               const lvl = player.skillLevels[sk.id] || 0;
+              const maxRank = sk.maxRank || 20;
               const locked = lvl <= 0;
               const cd = cooldowns[idx] || 0;
               const onCd = cd > 0 && !locked;
@@ -823,7 +827,7 @@ export const KiemTheBottomBar: React.FC<KiemTheBottomBarProps> = ({
                   type="button"
                   onClick={() => onCastSkill(idx)}
                   disabled={locked}
-                  title={`[${sk.keyBind}] ${sk.name} (${sk.branch} · Tầng ${lvl}) · ${sk.effectText}`}
+                  title={`[${sk.keyBind}] ${sk.name} (${sk.branch} · Hạng ${lvl}/${maxRank} · Lv.${sk.unlockLevel}) · ${sk.effectText}`}
                   className={`kt2009-slot relative flex min-w-0 items-center justify-center p-[2px] cursor-pointer ${
                     locked ? 'opacity-60 cursor-not-allowed' : ''
                   }`}
@@ -907,16 +911,16 @@ export const KiemTheBottomBar: React.FC<KiemTheBottomBarProps> = ({
           <button
             type="button"
             onClick={() => onCastSkill(0)}
-            title={`Chiêu Chuột Trái: ${sect.skills[0].name} (Nhấn xuất chiêu)`}
+            title={`Chiêu Chuột Trái: ${leftSkill.name} (Nhấn xuất chiêu)`}
             className="kt2009-active-skill group relative z-10 -translate-y-3 flex h-[30px] w-[30px] items-center justify-center overflow-hidden p-[2px] cursor-pointer sm:-translate-y-3.5 sm:h-[35px] sm:w-[35px]"
           >
             <SkillIcon
               sectId={player.sect}
-              skillType={sect.skills[0].type}
-              vfxKind={sect.skills[0].vfxKind}
+              skillType={leftSkill.type}
+              vfxKind={leftSkill.vfxKind}
               skillIndex={0}
-              color={sect.skills[0].color}
-              accentColor={sect.skills[0].accentColor}
+              color={leftSkill.color}
+              accentColor={leftSkill.accentColor}
               size={30}
               className="h-full w-full"
             />

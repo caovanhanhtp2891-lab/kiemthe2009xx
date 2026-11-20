@@ -548,6 +548,97 @@ export const SkillIcon: React.FC<SkillIconProps> = ({
               <polygon points="26,11 17,24 24,24 21,38 33,22 25,22" fill={c2} stroke="#FFFFFF" strokeWidth="1" />
             </g>
           );
+        case 'buddha_palm_ult':
+        case 'staff_mandala_ult':
+          return (
+            <g>
+              <circle cx="24" cy="24" r="16" fill={c1} fillOpacity="0.22" stroke={c2} strokeWidth="1.8" strokeDasharray="6 3" />
+              <circle cx="24" cy="24" r="10" fill="none" stroke={c1} strokeWidth="2.2" />
+              <path d="M24 7 L24 41 M7 24 L41 24 M12 12 L36 36 M36 12 L12 36" stroke={c2} strokeWidth="1.8" strokeLinecap="round" />
+              <circle cx="24" cy="24" r="4.5" fill={c2} stroke="#FFFFFF" strokeWidth="1" />
+            </g>
+          );
+        case 'cavalry_spear_ult':
+        case 'blood_dragon_ult':
+          return (
+            <g>
+              <line x1="8" y1="38" x2="36" y2="10" stroke={c1} strokeWidth="3.2" strokeLinecap="round" />
+              <line x1="8" y1="26" x2="30" y2="8" stroke={c2} strokeWidth="2.2" strokeLinecap="round" />
+              <line x1="18" y1="40" x2="40" y2="18" stroke={c2} strokeWidth="2.2" strokeLinecap="round" />
+              <polygon points="40,7 29,11 36,18" fill="#FFFFFF" stroke={c1} strokeWidth="1" />
+            </g>
+          );
+        case 'nine_palace_trap_ult':
+        case 'spider_venom_ult':
+          return (
+            <g>
+              <rect x="10" y="10" width="28" height="28" rx="2" fill={c1} fillOpacity="0.18" stroke={c1} strokeWidth="1.8" />
+              <path d="M19 10 L19 38 M29 10 L29 38 M10 19 L38 19 M10 29 L38 29" stroke={c2} strokeWidth="1.4" />
+              <circle cx="24" cy="24" r="4" fill={c2} />
+            </g>
+          );
+        case 'sacred_fire_hex_ult':
+        case 'hellfire_lotus_ult':
+          return (
+            <g>
+              <polygon points="24,7 38,32 10,32" fill={c1} fillOpacity="0.26" stroke={c2} strokeWidth="1.7" />
+              <polygon points="24,41 38,16 10,16" fill="none" stroke={c1} strokeWidth="1.7" />
+              <circle cx="24" cy="24" r="4.5" fill="#FFFFFF" />
+            </g>
+          );
+        case 'lotus_sanctuary_ult':
+          return (
+            <g>
+              <circle cx="24" cy="24" r="15.5" fill={c1} fillOpacity="0.2" stroke={c2} strokeWidth="1.8" />
+              <path d="M24 9 C29 16 29 26 24 34 C19 26 19 16 24 9 Z" fill={c2} stroke="#FFFFFF" strokeWidth="1.1" />
+              <path d="M11 22 C17 19 22 25 24 34 C16 32 11 27 11 22 Z" fill={c1} stroke={c2} strokeWidth="1.1" />
+              <path d="M37 22 C31 19 26 25 24 34 C32 32 37 27 37 22 Z" fill={c1} stroke={c2} strokeWidth="1.1" />
+            </g>
+          );
+        case 'glacier_swords_ult':
+        case 'six_meridian_ult':
+        case 'taiji_sword_array_ult':
+          return (
+            <g>
+              <circle cx="24" cy="24" r="15" fill="none" stroke={c1} strokeWidth="1.8" strokeDasharray="5 2.5" />
+              <line x1="24" y1="6" x2="24" y2="42" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" />
+              <line x1="12" y1="12" x2="36" y2="36" stroke={c2} strokeWidth="2.2" strokeLinecap="round" />
+              <line x1="36" y1="12" x2="12" y2="36" stroke={c1} strokeWidth="2.2" strokeLinecap="round" />
+              <circle cx="24" cy="24" r="4.2" fill={c2} />
+            </g>
+          );
+        case 'dragon_storm_ult':
+          return (
+            <g>
+              <path d="M11 36 C7 22 17 9 30 11 C39 13 40 25 32 30 C25 34 18 28 21 21 C23 16 30 17 30 22" fill="none" stroke={c1} strokeWidth="3.8" strokeLinecap="round" />
+              <path d="M14 34 C11 22 19 12 30 14 C36 15 37 23 31 27" fill="none" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="35" cy="12" r="3.2" fill={c2} />
+            </g>
+          );
+        case 'thunder_array_ult':
+        case 'wind_thunder_vortex_ult':
+          return (
+            <g>
+              <circle cx="24" cy="24" r="15" fill="none" stroke={c1} strokeWidth="2" strokeDasharray="8 4" />
+              <polygon points="27,7 14,24 23,24 19,41 35,21 25,21" fill={c2} stroke="#FFFFFF" strokeWidth="1.3" strokeLinejoin="round" />
+            </g>
+          );
+        case 'guard_shield_140':
+          return (
+            <g>
+              <polygon points="24,7 38,15 38,33 24,41 10,33 10,15" fill={c1} fillOpacity="0.28" stroke={c2} strokeWidth="2.2" />
+              <polygon points="24,13 33,18 33,30 24,35 15,30 15,18" fill="none" stroke="#FFFFFF" strokeWidth="1.4" />
+              <circle cx="24" cy="24" r="3.4" fill={c2} />
+            </g>
+          );
+        case 'cleanse_dash':
+          return (
+            <g>
+              <circle cx="24" cy="24" r="14" fill="none" stroke={c1} strokeWidth="2" strokeDasharray="4 3" />
+              <path d="M10 32 Q22 24 37 13" fill="none" stroke={c2} strokeWidth="3.4" strokeLinecap="round" />
+              <polygon points="39,11 29,13 35,20" fill="#FFFFFF" />
+            </g>
+          );
         default:
           break;
       }
